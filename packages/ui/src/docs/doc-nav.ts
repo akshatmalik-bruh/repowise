@@ -79,10 +79,10 @@ export function computeDocNav(page: DocPage, pages: DocPage[]): DocNavInfo {
   const byId = new Map(pages.map((p) => [p.id, p]));
   const chain = page.parent_page_id ? ancestors(page, byId) : [];
 
-  // Only when there is a documented ancestor to show. A page hanging directly
-  // off the repo root has none, and a lone basename crumb would say less than
-  // the directory trail the path still carries, so those keep the path split.
-  if (chain.length > 0) {
+  // Use the stored tree when page.parent_page_id exists and is in the store.
+  // Root children have an empty ancestor chain (root crumb omitted), but still
+  // rely on parent_page_id for display_order sibling sorting and clean labels.
+  if (page.parent_page_id && byId.has(page.parent_page_id)) {
     const breadcrumbs: DocNavSegment[] = [
       ...chain.map((a) => ({
         label: crumbLabel(a),

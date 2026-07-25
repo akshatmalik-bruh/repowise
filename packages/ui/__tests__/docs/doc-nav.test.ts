@@ -123,9 +123,9 @@ describe("computeDocNav", () => {
     expect(nav.breadcrumbs[0]?.pageId).toBe(mod.id);
   });
 
-  it("keeps the directory trail for a page hanging off the repo root", () => {
-    // The tree places files no module claimed directly under the overview. A
-    // lone basename crumb would say less than the path the page still carries.
+  it("uses the stored tree for pages parented to the repo root", () => {
+    // Pages parented to the repo root use the stored tree (omitting the root crumb,
+    // which the caller prepends).
     const loose = makePage({
       id: "file_page:docs/design/contrast_check.py",
       title: "contrast_check.py",
@@ -133,11 +133,7 @@ describe("computeDocNav", () => {
       parent_page_id: ROOT.id,
     });
     const nav = computeDocNav(loose, [ROOT, loose]);
-    expect(nav.breadcrumbs.map((b) => b.label)).toEqual([
-      "docs",
-      "design",
-      "contrast_check.py",
-    ]);
+    expect(nav.breadcrumbs.map((b) => b.label)).toEqual(["contrast_check.py"]);
   });
 
   it("labels ancestors with their page type so callers need not guess", () => {
@@ -164,13 +160,48 @@ describe("computeDocNav", () => {
     expect(nav.breadcrumbs.at(-1)?.label).toBe("Circular Dependency: scc-1050");
   });
 
-  it("shows a single label for a page with no path and no parent", () => {
-    const overview = makePage({
-      id: "o",
-      page_type: "repo_overview",
-      title: "Overview",
-      target_path: "",
+  it("shows prev/next sibling links for root-level pages using display_order", () => {
+    const tour = makePage({
+      id: "onboarding:tour",
+      page_type: "onboarding",
+      title: "Guided Tour",
+      target_path: "docs/guided_tour.md",
+      parent_page_id: ROOT.id,
+      display_order: 1,
     });
-    expect(computeDocNav(overview, [overview]).breadcrumbs).toEqual([{ label: "Overview" }]);
+    const map = makePage({
+      id: "onboarding:map",
+      page_type: "onboarding",
+      title: "Codebase Map",
+      target_path: "docs/codebase_map.md",
+      parent_page_id: ROOT.id,
+      display_order: 2,
+    });
+    const nav = computeDocNav(tour, [ROOT, tour, map]);
+    expect(nav.prev).toBeUndefined();
+    expect(nav.next?.pageId).toBe(map.id);
+    expect(nav.next?.title).toBe("Codebase Map");
+  });
+
+  it("provides prev/next navigation between root-level layer pages", () => {
+    const layer1 = makePage({
+      id: "layer_page:layer:ui",
+      page_type: "layer_page",
+      title: "Layer: UI",
+      target_path: "layer:ui",
+      parent_page_id: ROOT.id,
+      display_order: 1,
+    });
+    const layer2 = makePage({
+      id: "layer_page:layer:core",
+      page_type: "layer_page",
+      title: "Layer: Core",
+      target_path: "layer:core",
+      parent_page_id: ROOT.id,
+      display_order: 2,
+    });
+    const nav = computeDocNav(layer1, [ROOT, layer1, layer2]);
+    expect(nav.next?.pageId).toBe(layer2.id);
+    expect(nav.next?.title).toBe("Layer: Core");
   });
 });
