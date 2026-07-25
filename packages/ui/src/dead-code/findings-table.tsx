@@ -117,8 +117,8 @@ export function FindingsTable({
   isLoading,
 }: FindingsTableProps) {
   const [activeTab, setActiveTab] = useState<string | null>(null);
-  // The slider floor is the server's own `min_confidence` default: nothing
-  // below it is ever fetched, so a lower floor would be a control over nothing.
+  // The slider floor is the server's own `min_confidence` default (0.4, derived from
+  // RISK_CAP_CONFIDENCE in risk_factors.py): nothing below it is ever fetched.
   const [minConfidence, setMinConfidence] = useState<number>(DEAD_CODE_CONFIDENCE.MEDIUM);
   const [safeOnly, setSafeOnly] = useState(false);
   const [query, setQuery] = useState("");

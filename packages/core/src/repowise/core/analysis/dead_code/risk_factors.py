@@ -34,9 +34,10 @@ from pathlib import PurePosixPath
 SAFE_CONFIDENCE_THRESHOLD: float = 0.7
 
 # Confidence ceiling applied to a finding that carries a runtime-load risk
-# factor. 0.4 is the default ``min_confidence`` floor, so the finding still
-# surfaces (as a medium / review-required candidate) but never reads as
-# deletion-ready.
+# factor. 0.4 is the default ``min_confidence`` floor across CLI, REST router,
+# and MCP tools (which import this value as their single source of truth), so the
+# finding still surfaces (as a medium / review-required candidate) but never
+# reads as deletion-ready.
 RISK_CAP_CONFIDENCE: float = 0.4
 
 # Filename-stem tokens → risk-factor tag. Matched against the basename split on

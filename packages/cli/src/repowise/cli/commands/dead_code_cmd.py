@@ -16,9 +16,17 @@ from repowise.cli.helpers import (
 )
 
 
+from repowise.core.analysis.dead_code.risk_factors import RISK_CAP_CONFIDENCE
+
+
 @click.command("dead-code")
 @click.argument("path", required=False, type=click.Path(exists=True))
-@click.option("--min-confidence", default=0.5, type=float, help="Minimum confidence threshold.")
+@click.option(
+    "--min-confidence",
+    default=RISK_CAP_CONFIDENCE,
+    type=float,
+    help="Minimum confidence threshold.",
+)
 @click.option(
     "--safe-only",
     is_flag=True,

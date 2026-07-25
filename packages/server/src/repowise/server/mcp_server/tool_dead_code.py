@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import select
 
 from repowise.core.analysis.dead_code.risk_factors import (
+    RISK_CAP_CONFIDENCE,
     effective_safe_to_delete,
     path_risk_factors,
 )
@@ -215,7 +216,7 @@ _TIER_DESC_LOW = (
 async def get_dead_code(
     repo: str | None = None,
     kind: str | None = None,
-    min_confidence: float = 0.5,
+    min_confidence: float = RISK_CAP_CONFIDENCE,
     safe_only: bool = False,
     limit: int = 20,
     tier: str | None = None,
@@ -236,7 +237,7 @@ async def get_dead_code(
     Args:
         repo: usually omitted.
         kind: unreachable_file | unused_export | unused_internal | zombie_package.
-        min_confidence: floor, default 0.5 (0.7 = cleanup-ready only).
+        min_confidence: floor, default 0.4 (0.7 = cleanup-ready only).
         safe_only: deletion-ready findings only (no runtime-load risk).
         limit: max findings per tier (clamped to 25).
         tier: "high" (>=0.8) | "medium" | "low".

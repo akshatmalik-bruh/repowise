@@ -26,7 +26,11 @@ export type DeadCodeStatus = "open" | "acknowledged" | "resolved" | "false_posit
 export const DEAD_CODE_CONFIDENCE = {
   /** Deletion-ready floor; matches SAFE_CONFIDENCE_THRESHOLD. */
   HIGH: 0.7,
-  /** The list endpoint's default floor; below this findings are not fetched. */
+  /**
+   * The list endpoint & CLI's default `min_confidence` floor (0.4); mirrors
+   * `RISK_CAP_CONFIDENCE` in `core/analysis/dead_code/risk_factors.py`. Below this
+   * findings are not fetched.
+   */
   MEDIUM: 0.4,
 } as const;
 

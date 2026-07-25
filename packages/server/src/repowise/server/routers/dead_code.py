@@ -5,7 +5,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from repowise.core.analysis.dead_code.risk_factors import effective_safe_to_delete
+from repowise.core.analysis.dead_code.risk_factors import (
+    RISK_CAP_CONFIDENCE,
+    effective_safe_to_delete,
+)
 from repowise.core.persistence import crud
 from repowise.server.deps import get_db_session, verify_api_key
 from repowise.server.schemas import (
@@ -27,7 +30,7 @@ router = APIRouter(
 async def list_dead_code(
     repo_id: str,
     kind: str | None = Query(None, description="Filter by finding kind"),
-    min_confidence: float = Query(0.5, ge=0.0, le=1.0),
+    min_confidence: float = Query(RISK_CAP_CONFIDENCE, ge=0.0, le=1.0),
     status: str = Query("open"),
     safe_only: bool = Query(False),
     limit: int = Query(100, ge=1, le=500),
