@@ -85,7 +85,7 @@ All three reach the indexing knobs; the LLM-only knobs appear only when model-wr
 | `--harvest-decisions` / `--no-harvest-decisions` | Harvest architectural decisions during page generation (verified against source before storage). Default: on. |
 | `--wiki-style` | Documentation voice/density: `comprehensive` (default), `caveman` (token-condensed, AI-first), `reference` (API-manual), `tutorial` (beginner-friendly). Interactive full runs prompt when omitted. Saved to config so `update` keeps the style. See [WIKI_STYLES.md](../layers/WIKI_STYLES.md). |
 | `--language` | Output language for generated wiki pages: `en` (default), `ar`, `de`, `es`, `fr`, `hi`, `it`, `ja`, `ko`, `nl`, `pl`, `pt`, `ru`, `tr`, `zh`. Code, file paths, and symbol names stay untranslated. Saved to config so `update` keeps the language. Also asked in advanced interactive mode. To switch an existing wiki's language, set the flag and re-run `init --force`. |
-| `--resume` | Resume from the last checkpoint if interrupted |
+| `--resume` | Continue a previous run instead of redoing it: completed phases (indexing, analysis) are skipped, the earlier run's git tier is kept, and generation writes only the pages this repo does not have yet. Use it after an interrupted run, and after one that finished with failed pages (a provider outage, rate limiting) — pages already written are skipped with no model call, so nothing is paid for twice. Matching is per page, not per model, so switching provider still keeps what the old one wrote. |
 | `--force` | Regenerate all pages even if they exist |
 | `--commit-limit` | Max commits to analyze per file (default: 500, capped at 10000) |
 | `--follow-renames` | Track file renames in git history |
@@ -93,6 +93,7 @@ All three reach the indexing knobs; the LLM-only knobs appear only when model-wr
 | `--agents` / `--no-agents` | Generate or skip managed `AGENTS.md` for Codex. Persists the preference. |
 | `--codex` / `--no-codex` | Generate or skip project-local Codex MCP/hooks setup. Interactive runs prompt when Codex CLI is installed and logged in; non-interactive runs require `--codex`. |
 | `--distill-hook` / `--no-distill-hook` | Install or skip the Distill command-rewrite hook (Claude Code PreToolUse). Strictly opt-in: interactive runs prompt (default No); `--no-distill-hook` also gates the repo off in config so a globally installed hook stays inert here. In workspace mode the verdict applies to every selected repo. See [DISTILL.md](../agent/DISTILL.md). |
+| `--editor-setup` / `--no-editor-setup` | Register repowise in your machine-wide editor config: the Claude Code (`~/.claude/settings.json`) and Claude Desktop MCP server entry, plus the Claude Code PostToolUse/SessionStart hooks. Default: on. `--no-editor-setup` indexes the repo without touching anything outside it, which is what you want for a scratch checkout, a throwaway venv, or a CI run: each config holds a single `repowise` MCP key, so a second `init` repoints it at the newest repo instead of adding a second entry. It also skips the `--distill-hook` offer, which installs a user-level hook, though `--no-distill-hook` still records its opt-out in this repo's config. Project-local files are unaffected. `REPOWISE_SKIP_EDITOR_SETUP=1` is the same switch for CI and sandboxes, and it wins: with it set, an explicit `--editor-setup` does not turn registration back on. |
 | `--seed-from` | Seed the index from an explicit base checkout instead of the auto-detected one. Rarely needed: inside a linked git worktree the base is detected and seeded automatically. See [WORKTREES.md](../scale/WORKTREES.md). |
 | `--no-seed` | Disable worktree auto-seeding and run a full init even inside a linked worktree. |
 | `--yes` / `-y` | Skip confirmation prompts |
@@ -117,6 +118,7 @@ repowise init --language zh                           # wiki docs in Chinese
 repowise init -x vendor/ -x "*.gen.go"               # exclude patterns
 repowise init --include-submodules                    # include submodules
 repowise init --no-codex --no-agents                  # skip Codex project files
+repowise init --no-editor-setup --yes                 # index only, leave global MCP config alone
 repowise init .                                       # workspace mode
 repowise init . --no-prose -x "node_modules/"        # workspace, no LLM
 repowise init . --no-workspace                        # force single-repo, even in a workspace root
