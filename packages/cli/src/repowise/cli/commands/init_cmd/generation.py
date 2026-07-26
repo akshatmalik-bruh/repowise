@@ -13,6 +13,8 @@ returns a "declined" flag; the workspace flow prints a compact line and raises
 from __future__ import annotations
 
 import contextlib
+from collections import Counter
+from pathlib import Path
 from typing import Any
 
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
@@ -293,8 +295,39 @@ def run_repo_generation(
             )
         )
 
+    jobs_dir = Path(repo_path) / ".repowise" / "jobs"
+    failed_page_ids: list[str] = []
+    if jobs_dir.exists():
+        with contextlib.suppress(Exception):
+            from repowise.core.generation import JobSystem
+
+            js = JobSystem(jobs_dir)
+            job_id = getattr(result, "job_id", None)
+            if job_id:
+                failed_page_ids = js.get_checkpoint(job_id).failed_page_ids
+            else:
+                jobs = js.list_jobs()
+                if jobs:
+                    failed_page_ids = jobs[0].failed_page_ids
+
     result.generated_pages = generated_pages
-    if verbose:
+    result.failed_page_ids = failed_page_ids
+
+    if failed_page_ids:
+        type_counts = Counter(pid.split(":")[0] for pid in failed_page_ids)
+        console.print(
+            f"  [yellow]⚠[/yellow] Generated [bold]{len(generated_pages)}[/bold] pages "
+            f"([bold yellow]{len(failed_page_ids)} failed[/bold yellow])\n"
+        )
+        console.print("  [bold yellow]Failed pages by type:[/bold yellow]")
+        for page_type, count in sorted(type_counts.items(), key=lambda x: -x[1]):
+            console.print(f"    • {page_type}: {count}")
+        console.print(
+            "\n  [yellow]The wiki is incomplete due to provider failures.[/yellow]\n"
+            "  [dim]Run [bold]repowise init --resume[/bold] to generate missing pages "
+            "without re-spending on completed ones.[/dim]\n"
+        )
+    elif verbose:
         console.print(f"  [green]✓[/green] Generated [bold]{len(generated_pages)}[/bold] pages")
 
     # KG enrichment is layer naming and the guided tour, both pure prompting.

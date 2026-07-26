@@ -228,13 +228,16 @@ def show_completion(
         _render_defect_accuracy(result)
     else:
         _pages = result.generated_pages or []
+        _failed_ids = getattr(result, "failed_page_ids", []) or []
         total_tokens = sum(p.total_tokens for p in _pages)
         # Split model-written from the zero-LLM deterministic coverage tail so
         # broad coverage reads as thoroughness, not padding.
         _det = sum(1 for p in _pages if getattr(p, "provider_name", "") == "template")
         _ai = len(_pages) - _det
         _pages_label = str(len(_pages))
-        if _det:
+        if _failed_ids:
+            _pages_label = f"{len(_pages)} ({len(_failed_ids)} failed)"
+        elif _det:
             _pages_label = f"{len(_pages)} ({_ai} model-written · {_det} from structure)"
         metrics = [
             ("Pages generated", _pages_label),
