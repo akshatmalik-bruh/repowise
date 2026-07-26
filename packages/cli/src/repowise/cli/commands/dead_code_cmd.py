@@ -14,8 +14,6 @@ from repowise.cli.helpers import (
     run_async,
     silence_logs_for_machine_output,
 )
-
-
 from repowise.core.analysis.dead_code.risk_factors import RISK_CAP_CONFIDENCE
 
 
@@ -125,9 +123,7 @@ def dead_code_command(
             if primary is None:
                 raise click.ClickException("Workspace has no primary repo configured.")
             repo_path = primary
-            console.print(
-                "[dim]  (Tip: pass --repo <alias> to analyze a different repo.)[/dim]"
-            )
+            console.print("[dim]  (Tip: pass --repo <alias> to analyze a different repo.)[/dim]")
     else:
         assert target.repo_path is not None
         repo_path = target.repo_path

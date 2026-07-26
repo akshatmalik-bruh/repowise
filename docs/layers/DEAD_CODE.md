@@ -101,10 +101,10 @@ compare numbers:
 
 | Surface | High | Medium | Low | Default floor |
 |---------|------|--------|-----|---------------|
-| CLI (`repowise dead-code`) | `>= 0.7` | `0.5` to `0.7` | `< 0.5` | `--min-confidence 0.5` |
-| MCP (`get_dead_code`) | `>= 0.8` | `0.5` to `0.8` | `< 0.5` | `min_confidence=0.5` |
+| CLI (`repowise dead-code`) | `>= 0.7` | `0.4` to `0.7` | `< 0.4` | `--min-confidence 0.4` |
+| MCP (`get_dead_code`) | `>= 0.8` | `0.4` to `0.8` | `< 0.4` | `min_confidence=0.4` |
 
-Both surfaces now share the same default floor (`0.5`). The MCP high/medium
+Both surfaces now share the same default floor (`0.4`). The MCP high/medium
 cutovers stay stricter: an agent acting on a finding is riskier than a human
 reading a table.
 
@@ -230,7 +230,7 @@ before deleting anything.
 
 | Flag | Description |
 |------|-------------|
-| `--min-confidence` | Minimum confidence threshold (default `0.5`) |
+| `--min-confidence` | Minimum confidence threshold (default `0.4`) |
 | `--safe-only` | Only findings marked safe to delete |
 | `--kind` | `unreachable_file`, `unused_export`, `unused_internal`, `zombie_package` |
 | `--format` | `table` (default), `json`, `md` |
@@ -251,7 +251,7 @@ path, kind, confidence, line count, and a cleanup impact estimate.
 | Parameter | Default | Notes |
 |-----------|---------|-------|
 | `kind` | all | One of the four finding kinds |
-| `min_confidence` | `0.5` | `0.7` and above is cleanup-ready only |
+| `min_confidence` | `0.4` | `0.7` and above is cleanup-ready only |
 | `tier` | all | `high` (`>= 0.8`), `medium`, `low` |
 | `safe_only` | `false` | Deletion-ready only, excluding runtime-load risk |
 | `limit` | `20` | Per tier, clamped to 25 |

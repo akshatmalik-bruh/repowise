@@ -441,7 +441,7 @@ Detect dead and unused code.
 
 | Flag | Description |
 |------|-------------|
-| `--min-confidence` | Minimum confidence threshold (default: 0.5) |
+| `--min-confidence` | Minimum confidence threshold (default: 0.4) |
 | `--safe-only` | Only show findings marked safe to delete |
 | `--kind` | Filter: `unreachable_file`, `unused_export`, `unused_internal`, `zombie_package` |
 | `--format` | Output: `table` (default), `json`, `md` |

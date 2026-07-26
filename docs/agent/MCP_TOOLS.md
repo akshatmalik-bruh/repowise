@@ -439,7 +439,7 @@ Unreachable code, unused exports, unused internals, and zombie packages, sorted 
 |-----------|------|----------|-------------|
 | `repo` | string | No | *(workspace only)* Target repo alias |
 | `kind` | string | No | Restrict to one finding kind: `unreachable_file` \| `unused_export` \| `unused_internal` \| `zombie_package` |
-| `min_confidence` | float | No | Minimum confidence floor (default `0.5`; `0.7`+ is cleanup-ready only) |
+| `min_confidence` | float | No | Minimum confidence floor (default `0.4`; `0.7`+ is cleanup-ready only) |
 | `safe_only` | boolean | No | Deletion-ready findings only, excluding anything with runtime-load risk (default `false`) |
 | `limit` | int | No | Max findings per tier, clamped to 25 (default 20) |
 | `tier` | string | No | Restrict to one tier: `high` (>= 0.8) \| `medium` \| `low` |
