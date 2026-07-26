@@ -160,6 +160,16 @@ describe("computeDocNav", () => {
     expect(nav.breadcrumbs.at(-1)?.label).toBe("Circular Dependency: scc-1050");
   });
 
+  it("shows a single label for a page with no path and no parent", () => {
+    const overview = makePage({
+      id: "o",
+      page_type: "repo_overview",
+      title: "Overview",
+      target_path: "",
+    });
+    expect(computeDocNav(overview, [overview]).breadcrumbs).toEqual([{ label: "Overview" }]);
+  });
+
   it("shows prev/next sibling links for root-level pages using display_order", () => {
     const tour = makePage({
       id: "onboarding:tour",
