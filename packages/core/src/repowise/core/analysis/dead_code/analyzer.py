@@ -1312,14 +1312,18 @@ class DeadCodeAnalyzer:
                 pkg_owner: str | None = None
                 owner_counts: dict[str, int] = {}
                 for f in files:
+                    # git_meta_map values are plain dicts (see pipeline/phases/analysis.py);
+                    # use .get() not getattr() — getattr on a dict never finds arbitrary
+                    # string keys and always returns the default, silently zeroing all
+                    # git-activity metadata on zombie-package findings.
                     gm = self.git_meta_map.get(f)
                     if gm is None:
                         continue
-                    f_last = getattr(gm, "last_commit_at", None)
+                    f_last = gm.get("last_commit_at")
                     if f_last and (pkg_last_commit is None or f_last > pkg_last_commit):
                         pkg_last_commit = f_last
-                    pkg_total_commits_90d += getattr(gm, "commit_count_90d", 0) or 0
-                    f_owner = getattr(gm, "primary_owner_name", None)
+                    pkg_total_commits_90d += gm.get("commit_count_90d", 0) or 0
+                    f_owner = gm.get("primary_owner_name")
                     if f_owner:
                         owner_counts[f_owner] = owner_counts.get(f_owner, 0) + 1
                 if owner_counts:
