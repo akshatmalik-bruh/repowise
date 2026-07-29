@@ -1004,12 +1004,24 @@ def _launch_job_task(request: Request, job_id: str, repo_id: str) -> None:
     except Exception as exc:
         logger.exception("create_task_failed", extra={"job_id": job_id})
         # Schedule the failure-marking on the running loop; we're already in
-        # an async request handler so a fresh task is fine.
-        asyncio.create_task(_mark_terminal("failed", f"Failed to launch background task: {exc}"))
+        # an async request handler so a fresh task is fine. Hold a strong ref
+        # so garbage collection doesn't drop the task mid-flight.
+        _t = asyncio.create_task(
+            _mark_terminal("failed", f"Failed to launch background task: {exc}")
+        )
+        app_state.background_tasks.add(_t)
+        _t.add_done_callback(app_state.background_tasks.discard)
         return
 
     bg_tasks: set[asyncio.Task] = app_state.background_tasks  # type: ignore[assignment]
     bg_tasks.add(task)
+
+    def _fire_and_track(coro) -> None:
+        """Create a short-lived task and hold a strong reference until it completes."""
+        t = asyncio.create_task(coro)
+        bg_tasks.add(t)
+        t.add_done_callback(bg_tasks.discard)
+
     # Track by job id so the cancel endpoint can interrupt the task itself.
     job_tasks = getattr(app_state, "job_tasks", None)
     if job_tasks is None:
@@ -1023,7 +1035,7 @@ def _launch_job_task(request: Request, job_id: str, repo_id: str) -> None:
         if t.cancelled():
             # execute_job normally records "cancelled" itself; this covers a
             # cancel that landed before its try block was entered.
-            asyncio.create_task(_mark_terminal("cancelled", "Cancelled by user"))
+            _fire_and_track(_mark_terminal("cancelled", "Cancelled by user"))
             return
         exc = t.exception()
         if exc is not None:
@@ -1031,7 +1043,7 @@ def _launch_job_task(request: Request, job_id: str, repo_id: str) -> None:
             # execute_job already tries to mark failed in its except block,
             # but if that itself raised we must still ensure the row is
             # not left in pending/running.
-            asyncio.create_task(_mark_terminal("failed", f"Background task crashed: {exc}"))
+            _fire_and_track(_mark_terminal("failed", f"Background task crashed: {exc}"))
 
     task.add_done_callback(_on_done)
 
