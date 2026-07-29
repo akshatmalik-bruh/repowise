@@ -138,7 +138,7 @@ _CPP_CONTRACT_METHOD_NAMES: frozenset[str] = frozenset({
     "operator()",
     "operator->",
     "operator->*",
-    "operator*",                 # also dereference; deduped by set
+    "operator*",                 # also dereference; deduped by set  # noqa: B033
     # ---- Allocation operators (overloaded new/delete) ---------------
     "operator new",
     "operator new[]",
