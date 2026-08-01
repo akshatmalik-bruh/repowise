@@ -60,6 +60,16 @@
   )
 ) @symbol.def
 
+; Arrow function assigned to const/let (unparenthesized single parameter): const foo = x => { }
+(lexical_declaration
+  (variable_declarator
+    name: (identifier) @symbol.name
+    value: (arrow_function
+      parameter: (identifier) @symbol.params
+    )
+  )
+) @symbol.def
+
 ; Public method accessor modifier capture
 (method_definition
   (accessibility_modifier) @symbol.modifiers

@@ -282,6 +282,41 @@ export class Service {
         method_names = {s.name for s in result.symbols if s.kind == "method"}
         assert {"run", "helper"} <= method_names
 
+    def test_unparenthesized_arrow_functions_extracted(self, parser: ASTParser) -> None:
+        # Single-parameter unparenthesized arrow functions (x => x * 2) must be
+        # extracted as function symbols just like parenthesized ones ((x) => x * 2).
+        src = b"""
+export const double = x => x * 2;
+export const identity = (x: number) => x;
+export const square = n => n * n;
+export const add = (a: number, b: number) => a + b;
+const priv = x => x;
+"""
+        fi = _make_file_info("src/math.ts", "typescript")
+        result = parser.parse_file(fi, src)
+        fn_symbols = {s.name: s for s in result.symbols if s.kind == "function"}
+        # All four must be present — no unparenthesized arrow silently dropped.
+        assert {"double", "identity", "square", "add", "priv"} <= set(fn_symbols.keys())
+        # Unparenthesized single param is normalised to name(param) form.
+        assert fn_symbols["double"].signature == "double(x)"
+        # Exported symbols are public; unexported are private.
+        assert fn_symbols["double"].visibility == "public"
+        assert fn_symbols["priv"].visibility == "private"
+
+    def test_unparenthesized_arrow_functions_extracted_javascript(
+        self, parser: ASTParser
+    ) -> None:
+        # javascript.scm was also patched — verify the same fix works for .js files.
+        src = b"""
+export const double = x => x * 2;
+export const add = (a, b) => a + b;
+"""
+        fi = _make_file_info("src/math.js", "javascript")
+        result = parser.parse_file(fi, src)
+        fn_symbols = {s.name: s for s in result.symbols if s.kind == "function"}
+        assert {"double", "add"} <= set(fn_symbols.keys())
+        assert fn_symbols["double"].signature == "double(x)"
+
 
 def test_mts_file_uses_typescript_parser(parser: ASTParser) -> None:
     fi = _make_file_info("src/module.mts", "typescript")

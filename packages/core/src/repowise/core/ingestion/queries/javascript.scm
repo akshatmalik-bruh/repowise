@@ -26,12 +26,22 @@
   parameters: (formal_parameters) @symbol.params
 ) @symbol.def
 
-; Arrow function assigned to const/let
+; Arrow function assigned to const/let (parenthesized)
 (lexical_declaration
   (variable_declarator
     name: (identifier) @symbol.name
     value: (arrow_function
       parameters: (formal_parameters) @symbol.params
+    )
+  )
+) @symbol.def
+
+; Arrow function assigned to const/let (unparenthesized single parameter)
+(lexical_declaration
+  (variable_declarator
+    name: (identifier) @symbol.name
+    value: (arrow_function
+      parameter: (identifier) @symbol.params
     )
   )
 ) @symbol.def
