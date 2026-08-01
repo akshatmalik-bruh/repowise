@@ -296,11 +296,52 @@ export function MyForm() {
         fi = _make_file_info("ui/src/form.tsx", "typescript")
         result = parser.parse_file(fi, src)
         targets = {c.target_name for c in result.calls}
+        receivers = {c.receiver_name for c in result.calls if c.receiver_name}
         assert "Button" in targets
         assert "Item" in targets
+        # @call.receiver must be captured so Form.Item and Card.Item are disambiguated
+        assert "Form" in receivers
         assert "div" not in targets
         assert "form" not in targets
         assert "input" not in targets
+
+    def test_jsx_motion_and_styled_components_filtered(
+        self, parser: ASTParser
+    ) -> None:
+        # Regression: framer-motion / styled-components bring lowercase member
+        # expressions like <motion.div>, <motion.span>, <styled.button> which
+        # are HTML wrappers and must NOT be emitted as call targets.
+        # Only <motion.Foo> where Foo starts with A-Z should be captured.
+        src = b"""
+import { motion } from 'framer-motion';
+import styled from 'styled-components';
+import { Form } from 'antd';
+
+export function AnimatedCard() {
+  return (
+    <motion.div animate={{ opacity: 1 }}>
+      <motion.span>Label</motion.span>
+      <styled.button>Click</styled.button>
+      <Form.Item>
+        <motion.input />
+      </Form.Item>
+    </motion.div>
+  );
+}
+"""
+        fi = _make_file_info("ui/src/AnimatedCard.tsx", "typescript")
+        result = parser.parse_file(fi, src)
+        targets = {c.target_name for c in result.calls}
+        receivers = {c.receiver_name for c in result.calls if c.receiver_name}
+        # Capitalized member property (Form.Item) is a real component
+        assert "Item" in targets
+        assert "Form" in receivers
+        # Lowercase member properties are HTML wrappers — must be filtered
+        assert "div" not in targets    # motion.div
+        assert "span" not in targets   # motion.span
+        assert "button" not in targets # styled.button
+        assert "input" not in targets  # motion.input
+
 
     def test_class_methods_still_extracted(self, parser: ASTParser) -> None:
         # Negative for D5: methods inside class bodies must still be
