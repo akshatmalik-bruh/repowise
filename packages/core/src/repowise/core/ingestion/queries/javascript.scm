@@ -163,12 +163,27 @@
 ; JSX element usage (treated as a call to the component)
 ; ---------------------------------------------------------------------------
 
-; <Component ... />
+; <Component ... /> — Capitalized React component
 (jsx_self_closing_element
   name: (identifier) @call.target
+  (#match? @call.target "^[A-Z]")
 ) @call.site
 
-; <Component ... > ... </Component>
+; <Component ... > ... </Component> — Capitalized React component
 (jsx_opening_element
   name: (identifier) @call.target
+  (#match? @call.target "^[A-Z]")
+) @call.site
+
+; <Form.Item ... /> or <Form.Item> ... </Form.Item> — Member expression component
+(jsx_self_closing_element
+  name: (member_expression
+    property: (property_identifier) @call.target
+  )
+) @call.site
+
+(jsx_opening_element
+  name: (member_expression
+    property: (property_identifier) @call.target
+  )
 ) @call.site

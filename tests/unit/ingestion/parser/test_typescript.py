@@ -250,6 +250,10 @@ export function Card() {
         targets = {c.target_name for c in result.calls}
         assert "StatRow" in targets
         assert "Section" in targets
+        # Intrinsic HTML tags must NOT be emitted as call targets
+        assert "div" not in targets
+        assert "span" not in targets
+        assert "h2" not in targets
 
     def test_jsx_element_call_works_for_jsx_grammar(self, parser: ASTParser) -> None:
         # Same behaviour for .jsx (plain JavaScript grammar already
@@ -267,6 +271,36 @@ export function Card() {
         result = parser.parse_file(fi, src)
         targets = {c.target_name for c in result.calls}
         assert "StatRow" in targets
+        assert "span" not in targets
+
+    def test_jsx_html_intrinsic_elements_filtered_and_member_expressions_captured(
+        self, parser: ASTParser
+    ) -> None:
+        # Test .tsx, .jsx, and member-expression components (<Form.Item />).
+        src = b"""
+import { Form, Button } from 'antd';
+
+export function MyForm() {
+  return (
+    <div className="container">
+      <form>
+        <Form.Item label="Username">
+          <input type="text" />
+        </Form.Item>
+        <Button type="primary">Submit</Button>
+      </form>
+    </div>
+  );
+}
+"""
+        fi = _make_file_info("ui/src/form.tsx", "typescript")
+        result = parser.parse_file(fi, src)
+        targets = {c.target_name for c in result.calls}
+        assert "Button" in targets
+        assert "Item" in targets
+        assert "div" not in targets
+        assert "form" not in targets
+        assert "input" not in targets
 
     def test_class_methods_still_extracted(self, parser: ASTParser) -> None:
         # Negative for D5: methods inside class bodies must still be
