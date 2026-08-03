@@ -6,10 +6,9 @@
 #   docker run -p 7337:7337 -p 3000:3000 -v /path/to/repo/.repowise:/data -e GEMINI_API_KEY=... repowise
 # =============================================================================
 
-# ---------------------------------------------------------------------------
-# Stage 1: Build the Next.js frontend
-# ---------------------------------------------------------------------------
-FROM node:20-alpine AS frontend-builder
+# Use Debian-based Node builder (glibc) to match python:3.12-slim runtime.
+# Alpine (musl) builds produce a node binary that fails to execute in Debian slim with exit code 127.
+FROM node:20-bookworm-slim AS frontend-builder
 
 WORKDIR /app
 
