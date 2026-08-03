@@ -53,6 +53,11 @@ COPY --from=frontend-builder /app/.next/static /app/web/.next/static
 COPY --from=frontend-builder /app/public /app/web/public
 
 # Data volume for .repowise directory
+# mkdir is required: VOLUME only registers metadata and does not create the
+# directory on the image filesystem at build time. Without it, the subsequent
+# `chown -R repowise:repowise /data` (run at build time) fails with
+# "cannot access '/data': No such file or directory".
+RUN mkdir -p /data
 VOLUME /data
 
 # Environment defaults
