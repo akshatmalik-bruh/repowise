@@ -623,15 +623,21 @@ class DeadCodeAnalyzer:
             if on_step:
                 on_step("zombie_packages")
 
+        # Count confidence buckets over all detected findings before applying
+        # the min_confidence filter. Counting after the filter makes `low`
+        # (confidence < 0.4) structurally always 0 when min_confidence >= 0.4
+        # (the default), because those findings are removed before counting.
+        # This matches how get_dead_code_summary() computes the same buckets
+        # from the persisted DB rows (no confidence pre-filter there).
+        high = sum(1 for f in findings if f.confidence >= 0.7)
+        medium = sum(1 for f in findings if 0.4 <= f.confidence < 0.7)
+        low = sum(1 for f in findings if f.confidence < 0.4)
+
         min_conf = cfg.get("min_confidence", 0.4)
         findings = [f for f in findings if f.confidence >= min_conf]
 
         now = datetime.now(UTC)
         deletable = sum(f.lines for f in findings if f.safe_to_delete)
-
-        high = sum(1 for f in findings if f.confidence >= 0.7)
-        medium = sum(1 for f in findings if 0.4 <= f.confidence < 0.7)
-        low = sum(1 for f in findings if f.confidence < 0.4)
 
         return DeadCodeReport(
             repo_id="",
@@ -653,6 +659,10 @@ class DeadCodeAnalyzer:
         """
         affected_set = set(affected_files)
         full = self.analyze(config)
+        # full.findings is already filtered by min_confidence from analyze(), so
+        # the per-file subset inherits the same filter — low will be 0 here by
+        # construction (no findings below min_confidence survive to this point).
+        # The summary is provided for interface consistency with analyze().
         findings = [f for f in full.findings if f.file_path in affected_set]
 
         deletable = sum(f.lines for f in findings if f.safe_to_delete)
