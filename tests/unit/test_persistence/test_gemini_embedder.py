@@ -15,7 +15,6 @@ import pytest
 
 from repowise.core.providers.embedding.gemini import GeminiEmbedder
 
-
 # ---------------------------------------------------------------------------
 # Shared fake-SDK helpers
 # ---------------------------------------------------------------------------
