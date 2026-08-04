@@ -113,6 +113,23 @@ class OllamaEmbedder:
             raise ValueError(
                 f"Ollama returned {len(raw_vectors)} embeddings for {len(texts)} inputs."
             )
+        if raw_vectors and len(raw_vectors[0]) != self._dimensions:
+            actual = len(raw_vectors[0])
+            if self._requested_dimensions is not None:
+                hint = (
+                    f"Set OLLAMA_EMBEDDING_DIMS={actual} (or REPOWISE_EMBEDDING_DIMS={actual})"
+                    f" to match the server's native output."
+                )
+            else:
+                hint = (
+                    f"The dimension was inferred from the model name ({self._model!r})."
+                    f" Set OLLAMA_EMBEDDING_DIMS={actual} to override the inferred value."
+                )
+            raise ValueError(
+                f"OllamaEmbedder declared {self._dimensions}-dimensional vectors but the "
+                f"server returned {actual} (model={self._model!r}). "
+                f"The server likely ignored the 'dimensions' parameter. {hint}"
+            )
 
         return [_l2_normalize([float(value) for value in vector]) for vector in raw_vectors]
 
