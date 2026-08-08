@@ -113,8 +113,9 @@ class OllamaEmbedder:
             raise ValueError(
                 f"Ollama returned {len(raw_vectors)} embeddings for {len(texts)} inputs."
             )
-        if raw_vectors and len(raw_vectors[0]) != self._dimensions:
-            actual = len(raw_vectors[0])
+        widths = {len(v) for v in raw_vectors}
+        if widths and widths != {self._dimensions}:
+            actual = min(widths - {self._dimensions})
             if self._requested_dimensions is not None:
                 hint = (
                     f"Set OLLAMA_EMBEDDING_DIMS={actual} (or REPOWISE_EMBEDDING_DIMS={actual})"

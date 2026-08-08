@@ -30,6 +30,10 @@ class OpenRouterEmbedder:
                     OpenRouter-compatible endpoint returns a different number of
                     dimensions than the built-in ``_DIMS`` table records for that
                     model. Falls back to REPOWISE_EMBEDDING_DIMS, then ``_DIMS``.
+                    Note: this overrides only the *declared* width that the vector
+                    store trusts — it does not add a ``dimensions`` parameter to the
+                    API request. Use it to correct a wrong ``_DIMS`` entry when the
+                    model's real output differs.
     """
 
     _DIMS: ClassVar[dict[str, int]] = {
@@ -65,7 +69,11 @@ class OpenRouterEmbedder:
         # Resolve declared width: explicit arg > REPOWISE_EMBEDDING_DIMS > _DIMS table.
         if dimensions is None:
             env = os.environ.get("REPOWISE_EMBEDDING_DIMS")
-            dimensions = int(env) if env else None
+            if env:
+                try:
+                    dimensions = int(env)
+                except ValueError:
+                    raise ValueError("dimensions must be a positive integer") from None
         self._dimensions = dimensions if dimensions is not None else self._DIMS[model]
         self._client: object | None = None
 
@@ -97,8 +105,9 @@ class OpenRouterEmbedder:
                 )
             response = self._client.embeddings.create(model=model, input=texts)  # type: ignore[union-attr]
             raw_vectors = [list(item.embedding) for item in response.data]
-            if raw_vectors and len(raw_vectors[0]) != expected_dimensions:
-                actual = len(raw_vectors[0])
+            widths = {len(v) for v in raw_vectors}
+            if widths and widths != {expected_dimensions}:
+                actual = min(widths - {expected_dimensions})
                 raise ValueError(
                     f"OpenRouterEmbedder declared {expected_dimensions}-dimensional vectors but the API"
                     f" returned {actual} (model={model!r}). Update"

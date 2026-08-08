@@ -153,8 +153,9 @@ class OpenAIEmbedder:
                 create_kwargs["dimensions"] = request_dimensions
             response = self._client.embeddings.create(**create_kwargs)  # type: ignore[union-attr]
             raw_vectors = [list(item.embedding) for item in response.data]
-            if raw_vectors and len(raw_vectors[0]) != expected_dimensions:
-                actual = len(raw_vectors[0])
+            widths = {len(v) for v in raw_vectors}
+            if widths and widths != {expected_dimensions}:
+                actual = min(widths - {expected_dimensions})
                 if request_dimensions is not None:
                     hint = (
                         f"Set REPOWISE_EMBEDDING_DIMS={actual} to match the server's"

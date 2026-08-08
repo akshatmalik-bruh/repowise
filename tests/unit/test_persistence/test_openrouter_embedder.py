@@ -57,6 +57,12 @@ def test_unknown_model_raises_at_construction():
         OpenRouterEmbedder(api_key="k", model="some/future-model")
 
 
+def test_malformed_env_raises_the_same_message(monkeypatch):
+    monkeypatch.setenv("REPOWISE_EMBEDDING_DIMS", "abc")
+    with pytest.raises(ValueError, match="dimensions must be a positive integer"):
+        OpenRouterEmbedder(api_key="k")
+
+
 # ---------------------------------------------------------------------------
 # Embedding
 # ---------------------------------------------------------------------------

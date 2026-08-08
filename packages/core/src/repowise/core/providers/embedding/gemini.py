@@ -121,8 +121,9 @@ class GeminiEmbedder:
             )
 
             raw_vectors = [list(e.values) for e in result.embeddings]
-            if raw_vectors and len(raw_vectors[0]) != output_dimensionality:
-                actual = len(raw_vectors[0])
+            widths = {len(v) for v in raw_vectors}
+            if widths and widths != {output_dimensionality}:
+                actual = min(widths - {output_dimensionality})
                 raise ValueError(
                     f"GeminiEmbedder declared {output_dimensionality}-dimensional vectors but"
                     f" the API returned {actual} (model={model!r}). The API ignored"
