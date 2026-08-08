@@ -15,6 +15,12 @@ search → context → read loop with one tool call that returns:
                                    follow-up); present only when the answer
                                    names a function/method/class that was
                                    hydrated
+      "episodes":          list  — at most one dated fact recorded about this
+                                   checkout that bears on the question, served
+                                   beside the answer and never in place of it;
+                                   present only when its scope intersects the
+                                   answer's and confidence is below high (see
+                                   ``episodes``)
       "more_definitions":  list    only on an answer-by-union (homonym) reply
                                    whose bodies overflowed the char budget:
                                    {file, name, line, symbol_id, hint} entries
@@ -134,6 +140,9 @@ from repowise.server.mcp_server.tool_answer.data_shape import (
     _is_data_shape_question,
     mine_data_shape,
 )
+from repowise.server.mcp_server.tool_answer.episodes import (
+    attach_episode as _attach_episode,
+)
 from repowise.server.mcp_server.tool_answer.retrieval import (
     _apply_domain_penalty,
     _attach_page_excerpts,
@@ -152,6 +161,7 @@ from repowise.server.mcp_server.tool_answer.symbols import (
     _concept_anchor_hits,
     _extract_question_identifiers,
     _extract_value_answer,
+    _hydrate_candidate_defines,
     _hydrate_symbols_for_hits,
     _read_symbol_source,
     build_homonym_union_bodies,
@@ -679,6 +689,9 @@ async def get_answer(
     retrieval_quality separately rates the retrieval that fed synthesis.
     When the answer names a function/method/class, ``symbol_bodies`` carries
     its full live body — read that instead of a follow-up get_symbol.
+    ``episodes``, when present, is a dated fact recorded about this checkout
+    that bears on the question — evidence beside the answer, not a correction
+    of it. Weigh it against the answer; ``still_true`` says how current it is.
 
     Args:
         question: developer question.
@@ -819,6 +832,16 @@ async def get_answer(
                     targets=[p for p in cached_paths if isinstance(p, str) and p],
                 )
                 _apply_lean_high(payload, question)
+                # Serve-time, on this path as well as the fresh one: the
+                # episode is read on every call and never cached into an
+                # answer, so a disagreement cannot be frozen into a row and
+                # served after the episode has been superseded.
+                await _attach_episode(
+                    payload,
+                    question=question,
+                    repo_path=getattr(ctx, "path", None),
+                    repo_name=getattr(repository, "name", None),
+                )
                 return payload
 
     # --- Retrieval pipeline ------------------------------------------------
@@ -944,6 +967,15 @@ async def get_answer(
             async with get_session(ctx.session_factory) as session:
                 await _hydrate_symbols_for_hits(
                     session, repo_id, hits, ctx, question_ids=question_ids
+                )
+                # And the shortlist BELOW the synthesis cap: `candidates` names
+                # those files and, until now, said nothing about any of them.
+                # Runs here, sharing the open session, and against
+                # `resolved_pool` rather than `hits` because the whole point is
+                # the files the cap discarded. Suppressed with the block above:
+                # a missing `_defines` costs a `defines` key, never an answer.
+                await _hydrate_candidate_defines(
+                    session, repo_id, resolved_pool, question_ids=question_ids
                 )
 
     # --- Qualified-miss guard ----------------------------------------------
@@ -1792,4 +1824,16 @@ async def get_answer(
     if degraded := _degraded_legs(_retrieval_legs()):
         payload["_meta"]["retrieval_degraded"] = degraded
     _apply_lean_high(payload, question)
+    # After the cache write above, deliberately. ``cache_payload`` is a shallow
+    # copy taken before this point, so the episode reaches the caller and never
+    # the cache row — which is why adding it needs no _ANSWER_SCHEMA_VERSION
+    # bump: a row written before this change and one written after are the same
+    # bytes, and bumping would invalidate every user's cache for a field that
+    # is not in it.
+    await _attach_episode(
+        payload,
+        question=question,
+        repo_path=getattr(ctx, "path", None),
+        repo_name=getattr(repository, "name", None),
+    )
     return payload

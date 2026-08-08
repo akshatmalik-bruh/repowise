@@ -17,14 +17,19 @@ Usage::
 from __future__ import annotations
 
 import logging
-import os
 from collections import OrderedDict
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.sql import text
+
+from repowise.core.fts_query import DF_CEILING as _DF_CEILING
+from repowise.core.fts_query import MIN_KEPT_TERMS as _MIN_KEPT_TERMS
+from repowise.core.fts_query import PREFIX_MIN_CHARS as _PREFIX_MIN_CHARS
+from repowise.core.fts_query import build_fts5_query as _build_fts5_query
+from repowise.core.fts_query import match_term as _match_term
+from repowise.core.fts_query import meaningful_terms as _meaningful_terms
 
 from .information_floor import information_floor, meets_information_floor, substantive_text
 
@@ -62,6 +67,17 @@ PAGE_FTS_DDL = (
     "USING fts5(page_id UNINDEXED, title, content, summary, target_path)"
 )
 
+# An indexed row whose page is gone from ``wiki_pages``. Counting and deleting
+# share the predicate so the number reported is exactly the number removed.
+# ``NOT EXISTS`` rather than ``NOT IN``: the subquery's column is a primary key
+# and can never be NULL today, but ``NOT IN`` returns no rows at all the day one
+# is, which would turn this into a silent no-op instead of a visible failure.
+_ORPHAN_PREDICATE = (
+    "NOT EXISTS (SELECT 1 FROM wiki_pages p WHERE p.id = page_fts.page_id)"
+)
+_ORPHAN_COUNT_SQL = f"SELECT count(*) FROM page_fts WHERE {_ORPHAN_PREDICATE}"
+_ORPHAN_DELETE_SQL = f"DELETE FROM page_fts WHERE {_ORPHAN_PREDICATE}"
+
 # The text PostgreSQL indexes and searches. The GIN index built by the Alembic
 # migration uses this exact expression: any drift between the two silently
 # drops the index from the query plan, leaving a sequential scan that still
@@ -71,21 +87,6 @@ PG_FTS_EXPRESSION = (
     "COALESCE(title,'') || ' ' || COALESCE(content,'') || ' ' "
     "|| COALESCE(summary,'') || ' ' || COALESCE(target_path,''))"
 )
-
-# Shortest term that still gets a prefix wildcard. See :func:`_match_term`.
-_PREFIX_MIN_CHARS = 4
-
-# A term matching more than this share of the corpus is dropped from the query
-# expression: it cannot discriminate between pages, and every one of them drags
-# thousands of candidates in for BM25 to sort out afterwards. Env-tunable
-# because the right ceiling is a property of a corpus's vocabulary, and the only
-# honest way to set it is to measure recall on the corpus in question.
-_DF_CEILING = float(os.environ.get("REPOWISE_FTS_DF_CEILING", "0.20"))
-
-# Never let the ceiling empty a query. A question written entirely out of common
-# words keeps its rarest terms — a thin match beats no match, especially since
-# vector retrieval is answering the same question alongside this.
-_MIN_KEPT_TERMS = 3
 
 # How many distinct terms' document frequencies one FullTextSearch keeps. Term
 # frequency changes only when the corpus is rewritten, and questions reuse
@@ -98,115 +99,6 @@ _SCORE_EPSILON = 1e-6
 
 _log = logging.getLogger(__name__)
 
-# Common English stop words to strip from FTS queries
-_STOP_WORDS = frozenset(
-    {
-        "a",
-        "an",
-        "the",
-        "is",
-        "are",
-        "was",
-        "were",
-        "be",
-        "been",
-        "being",
-        "have",
-        "has",
-        "had",
-        "do",
-        "does",
-        "did",
-        "will",
-        "would",
-        "shall",
-        "should",
-        "may",
-        "might",
-        "must",
-        "can",
-        "could",
-        "am",
-        "to",
-        "of",
-        "in",
-        "for",
-        "on",
-        "with",
-        "at",
-        "by",
-        "from",
-        "as",
-        "into",
-        "about",
-        "it",
-        "its",
-        "this",
-        "that",
-        "these",
-        "those",
-        "i",
-        "we",
-        "you",
-        "he",
-        "she",
-        "they",
-        "me",
-        "him",
-        "her",
-        "us",
-        "them",
-        "my",
-        "your",
-        "his",
-        "our",
-        "their",
-        "what",
-        "which",
-        "who",
-        "whom",
-        "how",
-        "when",
-        "where",
-        "why",
-        "not",
-        "no",
-        "so",
-        "if",
-        "or",
-        "and",
-        "but",
-        "all",
-        "each",
-        "very",
-        "just",
-        "also",
-        "than",
-        "too",
-        "only",
-    }
-)
-
-
-def _meaningful_terms(query: str) -> list[str]:
-    """Alphanumeric tokens of *query*, minus stop words and single characters."""
-    import re
-
-    tokens = re.findall(r"[a-zA-Z0-9_]+", query.lower())
-    return [t for t in tokens if t not in _STOP_WORDS and len(t) > 1]
-
-
-def _match_term(term: str) -> str:
-    """One FTS5 term, prefix-matched only when it is long enough to be specific.
-
-    A prefix wildcard is what earns morphological recall — ``invalidat*`` finds
-    "invalidates" and "invalidation" — and it is also what turns a short token
-    into a corpus-wide match: ``set*`` hits settings, setup, setter, setdefault.
-    Below the cut the term is matched exactly, which costs the odd plural and
-    buys back a candidate set that BM25 was being asked to sort out afterwards.
-    """
-    return f'"{term}"*' if len(term) >= _PREFIX_MIN_CHARS else f'"{term}"'
-
 
 def _pg_term(term: str) -> str:
     """One ``to_tsquery`` lexeme, prefix-matched on the same rule as FTS5.
@@ -216,52 +108,6 @@ def _pg_term(term: str) -> str:
     that could change the expression's shape has been dropped before this.
     """
     return f"{term}:*" if len(term) >= _PREFIX_MIN_CHARS else term
-
-
-def _build_fts5_query(query: str, document_frequency: Callable[[str], int] | None = None) -> str:
-    """Build an FTS5 MATCH expression from a natural-language query.
-
-    Terms are OR-ed, because a developer question is a paraphrase of the page
-    that answers it: its rarest words are frequently the asker's vocabulary
-    rather than the page's, so requiring all of them (AND) excludes the right
-    page far more often than it narrows usefully. Measured on a 3,678-page
-    corpus, AND over the meaningful terms returned nothing at all for 65 of 99
-    questions, and held the expected page for 25 of 99 against 99 of 99 for OR.
-
-    What OR needs is not a different operator but fewer junk terms. A question
-    carries words that are not stop words yet still match a large share of any
-    code corpus ("file", "does", "page", "index"), and each one drags in
-    thousands of pages that only BM25 tie-breaking then has to sort out. Given
-    a *document_frequency* callable, terms matching more than
-    :data:`_DF_CEILING` of the corpus are dropped from the expression; the same
-    measurement puts the median candidate set at 20% of the corpus rather than
-    65%. Without the callable the expression keeps every term, which is the
-    prior behaviour.
-
-    At least :data:`_MIN_KEPT_TERMS` terms always survive — the rarest ones —
-    so a question written entirely from common words still matches something.
-    """
-    meaningful = _meaningful_terms(query)
-
-    if not meaningful:
-        # All stop words — fall back to exact phrase
-        safe = query.replace('"', '""')
-        return f'"{safe}"'
-
-    kept = meaningful
-    if document_frequency is not None:
-        total = document_frequency("")  # corpus size, by convention
-        if total > 0:
-            ceiling = _DF_CEILING * total
-            selective = [t for t in meaningful if document_frequency(t) <= ceiling]
-            if len(selective) < _MIN_KEPT_TERMS:
-                # Every term is common. Keep the rarest few rather than none:
-                # a thin match beats an empty one, and the vector arm is still
-                # answering alongside this.
-                selective = sorted(meaningful, key=document_frequency)[:_MIN_KEPT_TERMS]
-            kept = selective
-
-    return " OR ".join(_match_term(t) for t in kept)
 
 
 def snippet_around(content: str, query: str, length: int = _SNIPPET_LEN) -> str:
@@ -330,6 +176,7 @@ class FullTextSearch:
             async with self._engine.begin() as conn:
                 await conn.execute(text(PAGE_FTS_DDL))
             await self._upgrade_sqlite_schema()
+            await self.prune_orphans()
         elif self._dialect == "postgresql":
             async with self._engine.begin() as conn:
                 await conn.execute(
@@ -366,22 +213,53 @@ class FullTextSearch:
                     f"expected {list(PAGE_FTS_COLUMNS)!r}"
                 )
 
+            if not await self._page_table_exists(conn):
+                # The refill has nothing to read. Leaving the old index in
+                # place is the only move that keeps search answering, and it
+                # must not raise: every command opens the store through here,
+                # so an exception would take the whole CLI down over an index
+                # that is still perfectly usable on its old shape.
+                _log.warning(
+                    "page_fts is on an older column set but wiki_pages is missing; "
+                    "leaving the index alone"
+                )
+                return
+
             indexed_rows = await conn.execute(text("SELECT count(*) FROM page_fts"))
             indexed_count = int(indexed_rows.scalar() or 0)
             page_rows = await conn.execute(text("SELECT count(*) FROM wiki_pages"))
             page_count = int(page_rows.scalar() or 0)
+            orphan_count = await self._count_orphans(conn)
 
-        # The rebuild is a delete followed by a refill from a different table.
-        # If that table cannot account for what is already indexed, the two
-        # halves of the store have drifted and refilling would delete
-        # searchable pages outright. An index on the old shape still answers
-        # queries, so leaving it alone is strictly the safer failure.
-        if indexed_count > page_count:
-            raise RuntimeError(
-                f"Refusing to rebuild page_fts: {indexed_count} indexed rows but only "
-                f"{page_count} rows in wiki_pages to refill them from. The full-text "
-                f"index and the page table have drifted apart; repair the store "
-                f"(repowise doctor --repair) before upgrading it."
+        # The rebuild is a delete followed by a refill from a different table,
+        # so an index holding more rows than ``wiki_pages`` used to be refused
+        # here on the theory that refilling would delete searchable pages.
+        # It does not. Every excess row is a row whose ``page_id`` has no page
+        # behind it: the page was swept from SQL and the FTS delete that should
+        # have followed never ran, because it runs after the commit, outside
+        # the transaction, on a best-effort path (issue #1309). A hit on one of
+        # those answers in full and then 404s when the reader opens it, so
+        # dropping it is the repair, not the damage.
+        #
+        # What the refusal actually cost was every command: ``serve``,
+        # ``doctor --repair`` and the MCP server all open the store through
+        # ``ensure_index``, so the error told the user to run the one command
+        # it had already killed. Rebuild, and say what was discarded.
+        if orphan_count:
+            _log.warning(
+                "Dropping %d orphaned page_fts row(s) with no wiki_pages row behind "
+                "them while rebuilding the index",
+                orphan_count,
+            )
+        elif indexed_count > page_count:
+            # Excess the orphan scan cannot explain: duplicate rows for pages
+            # that do exist. The refill writes one row per page and fixes it,
+            # but it is worth a line — nothing in normal operation writes two.
+            _log.warning(
+                "page_fts holds %d rows for %d pages with no orphans among them; "
+                "the rebuild will collapse the duplicates",
+                indexed_count,
+                page_count,
             )
 
         _log.info(
@@ -407,6 +285,66 @@ class FullTextSearch:
             # Nothing in the statement above should be able to drop a row, so
             # a mismatch means the page table moved underneath the rebuild.
             _log.warning("page_fts rebuild wrote %d rows for %d pages", refilled, page_count)
+
+    @staticmethod
+    async def _page_table_exists(conn) -> bool:
+        """Whether ``wiki_pages`` is present on this connection."""
+        row = await conn.execute(
+            text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='wiki_pages'")
+        )
+        return row.scalar() is not None
+
+    @staticmethod
+    async def _count_orphans(conn) -> int:
+        """How many indexed rows name a page ``wiki_pages`` no longer has."""
+        row = await conn.execute(text(_ORPHAN_COUNT_SQL))
+        return int(row.scalar() or 0)
+
+    async def prune_orphans(self) -> int:
+        """Delete indexed rows whose page is gone. Returns how many went.
+
+        Six places delete pages from SQL and then delete their FTS rows
+        afterwards: the two writes cannot share a transaction, because on
+        SQLite the index lives in the same file as the session and writing to
+        it while the session holds the write lock raises "database is locked".
+        So the SQL delete is durable and the FTS delete is best-effort, and
+        anything that ends the process in between — a Ctrl-C, a crash, a lock
+        that did not clear — leaves a row indexed forever. Nothing reconciled
+        them, so the residue only ever grew; issue #1309 is a store that
+        reached 113 indexed rows against 24 pages that way.
+
+        An orphan is not inert. Search hydrates a hit's title and snippet from
+        the FTS row itself, so an orphan answers a query in full and 404s when
+        the reader clicks it, while holding a slot a live page wanted.
+
+        Called from :meth:`ensure_index`, which every command runs on the way
+        in, so an interrupted sweep heals on the next command instead of
+        becoming permanent. The scan is read-only and the write transaction is
+        opened only when there is something to delete: the common case is no
+        orphans, and taking the write lock to discover that would put every
+        command in the way of every other one.
+        """
+        if self._dialect != "sqlite":
+            # The GIN index is an expression over ``wiki_pages`` itself. It
+            # cannot hold a row the table does not, so there is nothing to
+            # prune and no scan worth paying for.
+            return 0
+
+        async with self._engine.connect() as conn:
+            if not await self._page_table_exists(conn):
+                return 0
+            orphans = await self._count_orphans(conn)
+        if not orphans:
+            return 0
+
+        async with self._engine.begin() as conn:
+            await conn.execute(text(_ORPHAN_DELETE_SQL))
+        _log.warning(
+            "Pruned %d orphaned page_fts row(s): indexed pages that are no longer in "
+            "wiki_pages, left behind by a sweep whose index delete did not complete",
+            orphans,
+        )
+        return orphans
 
     async def index(
         self,
