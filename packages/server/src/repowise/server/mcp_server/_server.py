@@ -555,6 +555,7 @@ def create_mcp_server(
 def run_mcp(
     transport: str = "stdio",
     repo_path: str | None = None,
+    host: str = "127.0.0.1",
     port: int = 7338,
     tools: str | list[str] | None = None,
 ) -> None:
@@ -570,10 +571,26 @@ def run_mcp(
     apply_tool_selection(mcp, repo_path=repo_path, override=tools)
 
     if transport == "sse":
+        mcp.settings.host = host
         mcp.settings.port = port
+        if host in ("0.0.0.0", "::") and not os.environ.get("REPOWISE_API_KEY"):
+            _log.warning(
+                "SECURITY WARNING: MCP server (sse) is binding to %s without "
+                "REPOWISE_API_KEY. All tools are unauthenticated and "
+                "network-accessible. Set REPOWISE_API_KEY or bind to 127.0.0.1.",
+                host,
+            )
         mcp.run(transport="sse")
     elif transport == "streamable-http":
+        mcp.settings.host = host
         mcp.settings.port = port
+        if host in ("0.0.0.0", "::") and not os.environ.get("REPOWISE_API_KEY"):
+            _log.warning(
+                "SECURITY WARNING: MCP server (streamable-http) is binding to %s without "
+                "REPOWISE_API_KEY. All tools are unauthenticated and "
+                "network-accessible. Set REPOWISE_API_KEY or bind to 127.0.0.1.",
+                host,
+            )
         mcp.run(transport="streamable-http")
     else:
         # stdout is the JSON-RPC channel on stdio, so every log line written
