@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
 
 
-def _verify_github_signature(body: bytes, signature_header: str) -> None:
+def _verify_github_signature(request: Request, body: bytes, signature_header: str) -> None:
     """Verify GitHub HMAC-SHA256 webhook signature.
 
     Reads REPOWISE_GITHUB_WEBHOOK_SECRET per-call so env changes (e.g.
@@ -35,7 +35,7 @@ def _verify_github_signature(body: bytes, signature_header: str) -> None:
     """
     secret = os.environ.get("REPOWISE_GITHUB_WEBHOOK_SECRET", "")
     if not secret:
-        if not auth_is_open():
+        if not auth_is_open(request):
             raise HTTPException(
                 status_code=403,
                 detail=(
@@ -59,7 +59,7 @@ def _verify_github_signature(body: bytes, signature_header: str) -> None:
         raise HTTPException(status_code=401, detail="Invalid signature")
 
 
-def _verify_gitlab_token(token_header: str) -> None:
+def _verify_gitlab_token(request: Request, token_header: str) -> None:
     """Verify GitLab webhook token.
 
     Reads REPOWISE_GITLAB_WEBHOOK_TOKEN per-call so env changes are always
@@ -71,7 +71,7 @@ def _verify_gitlab_token(token_header: str) -> None:
     """
     configured = os.environ.get("REPOWISE_GITLAB_WEBHOOK_TOKEN", "")
     if not configured:
-        if not auth_is_open():
+        if not auth_is_open(request):
             raise HTTPException(
                 status_code=403,
                 detail=(
@@ -117,7 +117,7 @@ async def github_webhook(
     """
     body = await request.body()
     sig = request.headers.get("X-Hub-Signature-256", "")
-    _verify_github_signature(body, sig)
+    _verify_github_signature(request, body, sig)
 
     event_type = request.headers.get("X-GitHub-Event", "unknown")
     delivery_id = request.headers.get("X-GitHub-Delivery", "")
@@ -184,7 +184,7 @@ async def gitlab_webhook(
     job for push events on the default branch.
     """
     token = request.headers.get("X-Gitlab-Token", "")
-    _verify_gitlab_token(token)
+    _verify_gitlab_token(request, token)
 
     body = await request.body()
     payload = json.loads(body)
