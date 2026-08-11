@@ -521,9 +521,10 @@ mcp = FastMCP(
     instructions=(
         "repowise is a codebase documentation engine. Use these tools to query "
         "the wiki for architecture overviews, contextual docs on files/modules/"
-        "symbols, modification risk assessment, architectural decision rationale, "
-        "semantic search, dependency paths, dead code, and architecture diagrams. "
-        "If the tools report that the repo has no index, tell the user to run "
+        "symbols, modification and change-risk assessment, architectural decision "
+        "rationale, semantic search, dead code, and code health. In workspace mode, "
+        "get_architecture and get_blast_radius are also available. If the tools "
+        "report that the repo has no index, tell the user to run "
         "'repowise init --yes' in the repo root; it needs no API key. Suggest it, "
         "do not run it yourself."
     ),
@@ -546,7 +547,12 @@ def create_mcp_server(
     deltas, or ``"all"``); when omitted the ``mcp.tools`` config block is used.
     """
     _state._repo_path = repo_path
+    from repowise.server.mcp_server import ensure_full_surface
     from repowise.server.mcp_server._tool_selection import apply_tool_selection
+
+    # Tool modules import lazily now, so a server has to ask for the full
+    # surface before it can advertise (or trim) it.
+    ensure_full_surface()
 
     apply_tool_selection(mcp, repo_path=repo_path, override=tools)
     return mcp
@@ -555,6 +561,7 @@ def create_mcp_server(
 def run_mcp(
     transport: str = "stdio",
     repo_path: str | None = None,
+    host: str = "127.0.0.1",
     port: int = 7338,
     tools: str | list[str] | None = None,
 ) -> None:
@@ -565,15 +572,33 @@ def run_mcp(
     when omitted, the ``mcp.tools`` config block is honoured.
     """
     _state._repo_path = repo_path
+    from repowise.server.mcp_server import ensure_full_surface
     from repowise.server.mcp_server._tool_selection import apply_tool_selection
 
+    ensure_full_surface()
     apply_tool_selection(mcp, repo_path=repo_path, override=tools)
 
     if transport == "sse":
+        mcp.settings.host = host
         mcp.settings.port = port
+        if host in ("0.0.0.0", "::") and not os.environ.get("REPOWISE_API_KEY"):
+            _log.warning(
+                "SECURITY WARNING: MCP server (sse) is binding to %s without "
+                "REPOWISE_API_KEY. All tools are unauthenticated and "
+                "network-accessible. Set REPOWISE_API_KEY or bind to 127.0.0.1.",
+                host,
+            )
         mcp.run(transport="sse")
     elif transport == "streamable-http":
+        mcp.settings.host = host
         mcp.settings.port = port
+        if host in ("0.0.0.0", "::") and not os.environ.get("REPOWISE_API_KEY"):
+            _log.warning(
+                "SECURITY WARNING: MCP server (streamable-http) is binding to %s without "
+                "REPOWISE_API_KEY. All tools are unauthenticated and "
+                "network-accessible. Set REPOWISE_API_KEY or bind to 127.0.0.1.",
+                host,
+            )
         mcp.run(transport="streamable-http")
     else:
         # stdout is the JSON-RPC channel on stdio, so every log line written

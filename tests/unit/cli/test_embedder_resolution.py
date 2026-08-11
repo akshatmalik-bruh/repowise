@@ -131,10 +131,14 @@ def test_semantic_search_reads_through_the_repo_resolver(
 ) -> None:
     """The call site, not just the helper.
 
-    Both ``search`` entry points used to resolve from the environment; a helper
-    test alone would keep passing if they were reverted.
+    ``search`` used to resolve from the environment; a helper test alone would
+    keep passing if that were reverted. Since ``search`` collapsed onto the
+    ``search_codebase`` tool, the call site is the bridge that builds the store
+    for every adapter command, so this now covers all of them at once.
     """
-    from repowise.cli.commands import search_cmd
+    import asyncio
+
+    from repowise.cli import tool_bridge
 
     _write_config(tmp_path, embedder="mock")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -150,13 +154,10 @@ def test_semantic_search_reads_through_the_repo_resolver(
         return MockEmbedder()
 
     monkeypatch.setattr("repowise.cli.providers.embedders.build_embedder", _record)
-    monkeypatch.setattr(search_cmd, "_display_results", lambda *a, **k: None)
-    monkeypatch.setattr(search_cmd, "get_db_url_for_repo", lambda _p: "sqlite+aiosqlite://")
 
-    search_cmd._search_semantic(tmp_path, "anything", 5)
-    search_cmd._collect_semantic(tmp_path, "anything", 5)
+    asyncio.run(tool_bridge._open_vector_store(tmp_path))
 
-    assert seen == ["mock", "mock"], seen
+    assert seen == ["mock"], seen
 
 
 def test_serve_seeds_a_mock_pin_into_the_environment(
@@ -607,12 +608,17 @@ def test_duplicate_reembed_actions_run_once() -> None:
 
 
 def _capture_console(monkeypatch) -> list[str]:
-    """Collect what build_embedder prints, without a real terminal."""
+    """Collect what build_embedder prints, without a real terminal.
+
+    It warns on **stderr**: the caller's stdout may be a JSON document (see
+    ``test_output_agent_readiness.py``), and a warning printed in front of it
+    breaks every parser reading it.
+    """
     from repowise.cli import helpers
 
     printed: list[str] = []
     monkeypatch.setattr(
-        helpers.console, "print", lambda *a, **k: printed.append(" ".join(str(x) for x in a))
+        helpers.err_console, "print", lambda *a, **k: printed.append(" ".join(str(x) for x in a))
     )
     return printed
 
