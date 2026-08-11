@@ -288,3 +288,9 @@ def dead_code_command(
         f"\nCleanup-candidate lines: [bold]{report.deletable_lines:,}[/bold]"
         + (f" ({tiers} confidence)" if tiers else "")
     )
+    if report.hidden_below_threshold:
+        console.print(
+            f"[dim]{report.hidden_below_threshold} finding(s) hidden below "
+            f"threshold (confidence < {min_confidence:.2g}); "
+            f"pass --min-confidence 0.0 to see them.[/dim]"
+        )

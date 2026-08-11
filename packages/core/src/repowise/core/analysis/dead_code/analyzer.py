@@ -685,6 +685,7 @@ class DeadCodeAnalyzer:
                 on_step("zombie_packages")
 
         min_conf = cfg.get("min_confidence", 0.4)
+        hidden_below_threshold = sum(1 for f in findings if f.confidence < min_conf)
         findings = [f for f in findings if f.confidence >= min_conf]
 
         now = datetime.now(UTC)
@@ -701,6 +702,7 @@ class DeadCodeAnalyzer:
             findings=findings,
             deletable_lines=deletable,
             confidence_summary={"high": high, "medium": medium, "low": low},
+            hidden_below_threshold=hidden_below_threshold,
         )
 
     # ------------------------------------------------------------------
