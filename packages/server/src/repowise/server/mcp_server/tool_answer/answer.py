@@ -117,6 +117,7 @@ from repowise.server.mcp_server._neighbor_rerank import (
 from repowise.server.mcp_server.tool_answer.confidence import (
     _answer_is_hedged,
     _frame_term_grounding,
+    _has_unqualified_exclusivity_over_truncated,
     _is_value_question,
     _ungrounded_numbers,
 )
@@ -1729,6 +1730,20 @@ async def get_answer(
         else:
             frame_unsupported = []
 
+    # Seventh gate — completeness scope over truncated bodies: when prose asserts
+    # an unqualified exclusivity claim ("entirely", "the sole", "the only") while
+    # any cited symbol body arrived truncated: true, the answer asserts a global
+    # property from a sample it knows is incomplete (#1444).
+    # Guard: only fires at high (like gates 3 / 5 / 6) so it cannot stack with
+    # other downgrades and push a single response two levels for one problem.
+    exclusivity_over_truncated = False
+    if confidence == "high" and not hedged:
+        exclusivity_over_truncated = _has_unqualified_exclusivity_over_truncated(
+            answer_text, symbol_bodies
+        )
+        if exclusivity_over_truncated:
+            confidence = "medium"
+
     # Non-dominant ceiling: ambiguous retrieval is the calibration cost of
     # always synthesizing — the answer may be right, but with no single dominant
     # page it must never read "high" (cite without verifying). Cap at medium even
@@ -1873,6 +1888,22 @@ async def get_answer(
                 f"Verify the mechanism before citing: the asserted term(s) "
                 f"{frame_unsupported} are not in the retrieved material."
             )
+        elif exclusivity_over_truncated:
+            # Note names the axis of doubt (what to be uncertain about), not the
+            # check that triggered it — so a reader can tell which kind of doubt
+            # this is without consulting the source code.
+            payload["note"] = (
+                "Answer may not cover every relevant site: a cited symbol's body "
+                "was truncated and the answer makes an unqualified causal claim. "
+                "Other functions may also participate; call get_symbol for the "
+                "full body or verify against "
+                f"{fallback_targets[0] if fallback_targets else 'the cited source'}."
+            )
+            if fallback_targets:
+                payload["next_action_hint"] = (
+                    f"Read {fallback_targets[0]} to verify whether other functions "
+                    "participate beyond what the truncated symbol body shows."
+                )
         elif confidence == "high":
             payload["note"] = (
                 "High confidence: top retrieval result clearly dominates "
