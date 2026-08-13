@@ -98,6 +98,37 @@ _DEPRECATED_DECORATOR_BASES: frozenset[str] = frozenset(
 )
 
 
+#: Regex that strips quoted string literals from a decorator/annotation text
+#: before splitting on ``@`` boundaries.  Without this,
+#: ``@app.route("/deprecated")`` would produce a token whose paren-stripped
+#: base is ``app.route`` (correct), but a hypothetical annotation whose
+#: *argument* contains ``@something`` would create a spurious token.
+_QUOTED_STR_RE: re.Pattern[str] = re.compile(r'"[^"]*"')
+
+
+def _decorator_base(raw: str) -> str:
+    """Return the normalised base name of a single decorator/annotation token.
+
+    Strips a leading ``@``, trims whitespace, and drops any call-argument
+    ``(…)`` tail.  For multi-word tokens (e.g. a Java modifier blob fragment
+    ``"Deprecated\n    public"``) only the first whitespace-delimited word is
+    kept, so visibility keywords that trail the annotation name are discarded.
+
+    This function handles ONE token.  Callers that receive multi-annotation
+    blobs (Java/Kotlin ``modifiers`` node) must split on ``@`` first.
+    """
+    base = raw.lstrip("@").strip()
+    paren = base.find("(")
+    if paren >= 0:
+        base = base[:paren].strip()
+    else:
+        # Handle trailing visibility keywords in modifier blobs:
+        # "Deprecated\n    public" → "Deprecated"
+        parts = base.split()
+        base = parts[0] if parts else base
+    return base
+
+
 def _is_symbol_deprecated(sym_name: str, decorators: list[str]) -> bool:
     """Return True when the symbol is marked deprecated by name suffix or annotation.
 
@@ -107,15 +138,23 @@ def _is_symbol_deprecated(sym_name: str, decorators: list[str]) -> bool:
        ``_COMPAT`` (original naming-convention check, preserved for backward
        compatibility).
 
-    2. **Decorator / annotation**: each entry in *decorators* is normalised by
-       stripping a leading ``@``, dropping any call-argument ``(…)`` tail, and
-       trimming whitespace; the result is tested against
-       ``_DEPRECATED_DECORATOR_BASES`` and against the lower-cased form
-       ``"deprecated"`` as a catch-all.
+    2. **Decorator / annotation**: each entry in *decorators* is treated as a
+       possibly multi-annotation modifier blob (Java/Kotlin ``modifiers`` node
+       delivers all annotations concatenated with whitespace in a single
+       string).  Each entry is first cleaned of quoted substrings (to avoid
+       matching paths like ``"/deprecated"`` inside ``@app.route("/deprecated")``),
+       then split on ``@`` boundaries so every individual annotation is checked
+       independently.  Each token is normalised via :func:`_decorator_base` and
+       tested against ``_DEPRECATED_DECORATOR_BASES`` and the lower-cased
+       ``"deprecated"`` catch-all.
 
     The *decorators* list is produced by ``parser.py`` ``_extract_symbols``:
-    - Python / TS / Java / Kotlin / Scala / Swift: full decorator text with
-      leading ``@`` (e.g. ``"@deprecated"``, ``"@Deprecated"``).
+    - Python / Scala / Swift: full decorator text with leading ``@``
+      (e.g. ``"@deprecated"``, ``"@typing.deprecated"``).
+    - Java / Kotlin: full modifier-node text — one blob per declaration that
+      may contain several annotations plus visibility keywords
+      (e.g. ``"@Deprecated\n    public"``,
+      ``"@Override\n  @Deprecated\n  public"``).
     - Rust: inner attribute content stripped of ``#[…]``
       (e.g. ``"deprecated"`` from ``#[deprecated]``).
     - C#: inner attribute content stripped of ``[…]``
@@ -128,12 +167,20 @@ def _is_symbol_deprecated(sym_name: str, decorators: list[str]) -> bool:
         return True
     # 2. Decorator / annotation
     for raw in decorators:
-        base = raw.lstrip("@").strip()
-        paren = base.find("(")
-        if paren >= 0:
-            base = base[:paren].strip()
-        if base in _DEPRECATED_DECORATOR_BASES or base.lower() == "deprecated":
-            return True
+        # Strip quoted strings first so path arguments like "/deprecated"
+        # inside ``@app.route("/deprecated")`` do not create false tokens.
+        cleaned = _QUOTED_STR_RE.sub('""', raw)
+        # Split on '@' to tokenize modifier blobs.  A leading '@' produces
+        # an empty first element which the ``if not token`` guard discards.
+        # No-'@' forms (Rust/C#/C++ inner attrs: "deprecated", "Obsolete")
+        # yield a single token equal to the whole string.
+        for token in cleaned.split("@"):
+            token = token.strip()
+            if not token:
+                continue
+            base = _decorator_base(token)
+            if base in _DEPRECATED_DECORATOR_BASES or base.lower() == "deprecated":
+                return True
     return False
 
 # Symbol kinds that cannot be independently imported by name in any
@@ -1218,11 +1265,6 @@ class DeadCodeAnalyzer:
                 # suffix check sees the attribute path itself.
                 decorators = sym.get("decorators", [])
 
-                def _decorator_base(d: str) -> str:
-                    stripped = d.lstrip("@")
-                    paren = stripped.find("(")
-                    return stripped[:paren] if paren >= 0 else stripped
-
                 if any(
                     _decorator_base(d).startswith(prefix)
                     for d in decorators
@@ -1456,19 +1498,14 @@ class DeadCodeAnalyzer:
             decorators = node_data.get("decorators") or []
             if decorators:
 
-                def _dec_base(d: str) -> str:
-                    stripped = d.lstrip("@")
-                    paren = stripped.find("(")
-                    return stripped[:paren] if paren >= 0 else stripped
-
                 if any(
-                    _dec_base(d).startswith(prefix)
+                    _decorator_base(d).startswith(prefix)
                     for d in decorators
                     for prefix in _FRAMEWORK_DECORATORS
                 ):
                     continue
                 if any(
-                    _dec_base(d).endswith(suffix)
+                    _decorator_base(d).endswith(suffix)
                     for d in decorators
                     for suffix in _FRAMEWORK_DECORATOR_SUFFIXES
                 ):
@@ -1507,7 +1544,13 @@ class DeadCodeAnalyzer:
             _intern_deprecated = _is_symbol_deprecated(
                 sym_name, node_data.get("decorators") or []
             )
-            _intern_confidence = 0.3 if _intern_deprecated else 0.65
+            # Deprecated private symbols keep the standard 0.65 base confidence.
+            # A private symbol has no external consumer by construction —
+            # deprecated + uncalled is the strongest possible delete signal and
+            # must not be buried below the default min_confidence floor.
+            # (0.3 is reserved for unused *exports*, where an invisible consumer
+            # outside the repo may still import it.)
+            _intern_confidence = 0.65
             findings.append(
                 DeadCodeFindingData(
                     kind=DeadCodeKind.UNUSED_INTERNAL,

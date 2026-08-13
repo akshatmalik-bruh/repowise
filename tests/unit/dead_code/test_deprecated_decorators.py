@@ -246,3 +246,234 @@ class TestDeprecatedDecoratorIntegration:
         findings = [f for f in report.findings if f.symbol_name == "process_data_DEPRECATED"]
         assert len(findings) == 1
         assert findings[0].confidence == pytest.approx(0.3)
+
+
+# ---------------------------------------------------------------------------
+# parse_file roundtrip tests — these are the tests the reviewer asked for.
+# They call parse_file on a real code snippet per language and assert on
+# symbol.decorators directly, proving the extraction path fires end-to-end
+# rather than just testing the string normalization helper in isolation.
+# ---------------------------------------------------------------------------
+
+
+class TestDeprecatedDecoratorParseFile:
+    """parse_file roundtrip: decorator text lands in symbol.decorators."""
+
+    def _parser(self):
+        from repowise.core.ingestion.parser import ASTParser
+
+        return ASTParser()
+
+    def _make_file_info(self, path: str, language: str):
+        from datetime import datetime
+
+        from repowise.core.ingestion.models import FileInfo
+
+        return FileInfo(
+            path=path,
+            abs_path=f"/tmp/{path}",
+            language=language,
+            size_bytes=100,
+            git_hash="",
+            last_modified=datetime.now(),
+            is_test=False,
+            is_config=False,
+            is_api_contract=False,
+            is_entry_point=False,
+        )
+
+    # ------------------------------------------------------------------
+    # C# — [Obsolete] is child[0] of method_declaration
+    # ------------------------------------------------------------------
+
+    def test_csharp_obsolete_lands_in_decorators(self):
+        src = b"""
+using System;
+public class Foo {
+    [Obsolete("use Bar instead")]
+    public void OldApi() { }
+
+    public void NewApi() { }
+}
+"""
+        fi = self._make_file_info("pkg/Foo.cs", "csharp")
+        result = self._parser().parse_file(fi, src)
+        old = next((s for s in result.symbols if s.name == "OldApi"), None)
+        assert old is not None, "OldApi symbol not found"
+        assert any("Obsolete" in d for d in old.decorators), (
+            f"Expected 'Obsolete' in decorators; got {old.decorators}"
+        )
+
+    def test_csharp_obsolete_is_detected_as_deprecated(self):
+        from repowise.core.analysis.dead_code.analyzer import _is_symbol_deprecated
+
+        src = b"""
+using System;
+public class Foo {
+    [Obsolete("use Bar instead")]
+    public void OldApi() { }
+}
+"""
+        fi = self._make_file_info("pkg/Foo.cs", "csharp")
+        result = self._parser().parse_file(fi, src)
+        old = next((s for s in result.symbols if s.name == "OldApi"), None)
+        assert old is not None
+        assert _is_symbol_deprecated(old.name, old.decorators), (
+            f"OldApi should be deprecated; decorators={old.decorators}"
+        )
+
+    def test_csharp_no_attribute_has_empty_decorators(self):
+        src = b"""
+public class Foo {
+    public void NewApi() { }
+}
+"""
+        fi = self._make_file_info("pkg/Foo.cs", "csharp")
+        result = self._parser().parse_file(fi, src)
+        new = next((s for s in result.symbols if s.name == "NewApi"), None)
+        assert new is not None
+        assert not any("Obsolete" in d for d in new.decorators)
+
+    # ------------------------------------------------------------------
+    # C++ — [[deprecated]] is child[0] of function_definition
+    # ------------------------------------------------------------------
+
+    def test_cpp_deprecated_lands_in_decorators(self):
+        src = b'[[deprecated("use bar() instead")]] void old_api() { }\n'
+        fi = self._make_file_info("pkg/api.cpp", "cpp")
+        result = self._parser().parse_file(fi, src)
+        sym = next((s for s in result.symbols if s.name == "old_api"), None)
+        assert sym is not None, "old_api symbol not found"
+        assert any("deprecated" in d for d in sym.decorators), (
+            f"Expected 'deprecated' in decorators; got {sym.decorators}"
+        )
+
+    def test_cpp_deprecated_is_detected_as_deprecated(self):
+        from repowise.core.analysis.dead_code.analyzer import _is_symbol_deprecated
+
+        src = b"[[deprecated]] void old_api() { }\n"
+        fi = self._make_file_info("pkg/api.cpp", "cpp")
+        result = self._parser().parse_file(fi, src)
+        sym = next((s for s in result.symbols if s.name == "old_api"), None)
+        assert sym is not None
+        assert _is_symbol_deprecated(sym.name, sym.decorators), (
+            f"old_api should be deprecated; decorators={sym.decorators}"
+        )
+
+    def test_cpp_no_attribute_has_empty_decorators(self):
+        src = b"void new_api() { }\n"
+        fi = self._make_file_info("pkg/api.cpp", "cpp")
+        result = self._parser().parse_file(fi, src)
+        sym = next((s for s in result.symbols if s.name == "new_api"), None)
+        assert sym is not None
+        assert not any("deprecated" in d for d in sym.decorators)
+
+    # ------------------------------------------------------------------
+    # Java — bare @Deprecated (the most common real-world case)
+    # ------------------------------------------------------------------
+
+    def test_java_bare_deprecated_lands_in_decorators(self):
+        """Regression: bare @Deprecated was silently ignored before blob tokenization."""
+        src = b"""
+public class Service {
+    @Deprecated
+    public void processData() { }
+
+    public void newProcess() { }
+}
+"""
+        fi = self._make_file_info("pkg/Service.java", "java")
+        result = self._parser().parse_file(fi, src)
+        sym = next((s for s in result.symbols if s.name == "processData"), None)
+        assert sym is not None, "processData symbol not found"
+        assert sym.decorators, (
+            f"processData should have non-empty decorators; got {sym.decorators}"
+        )
+
+    def test_java_bare_deprecated_is_detected_as_deprecated(self):
+        """Regression: bare @Deprecated blob must match _is_symbol_deprecated."""
+        from repowise.core.analysis.dead_code.analyzer import _is_symbol_deprecated
+
+        src = b"""
+public class Service {
+    @Deprecated
+    public void processData() { }
+}
+"""
+        fi = self._make_file_info("pkg/Service.java", "java")
+        result = self._parser().parse_file(fi, src)
+        sym = next((s for s in result.symbols if s.name == "processData"), None)
+        assert sym is not None
+        assert _is_symbol_deprecated(sym.name, sym.decorators), (
+            f"processData should be deprecated; decorators={sym.decorators}"
+        )
+
+    def test_java_deprecated_with_args_is_detected(self):
+        from repowise.core.analysis.dead_code.analyzer import _is_symbol_deprecated
+
+        src = b"""
+public class Service {
+    @Deprecated(since = "3.2", forRemoval = true)
+    public void processData() { }
+}
+"""
+        fi = self._make_file_info("pkg/Service.java", "java")
+        result = self._parser().parse_file(fi, src)
+        sym = next((s for s in result.symbols if s.name == "processData"), None)
+        assert sym is not None
+        assert _is_symbol_deprecated(sym.name, sym.decorators), (
+            f"processData should be deprecated; decorators={sym.decorators}"
+        )
+
+    def test_java_override_plus_deprecated_is_detected(self):
+        """Regression: @Override\\n  @Deprecated\\n  public blob — only second annotation matters."""
+        from repowise.core.analysis.dead_code.analyzer import _is_symbol_deprecated
+
+        src = b"""
+public class Service extends Base {
+    @Override
+    @Deprecated
+    public void processData() { }
+}
+"""
+        fi = self._make_file_info("pkg/Service.java", "java")
+        result = self._parser().parse_file(fi, src)
+        sym = next((s for s in result.symbols if s.name == "processData"), None)
+        assert sym is not None
+        assert _is_symbol_deprecated(sym.name, sym.decorators), (
+            f"processData should be deprecated; decorators={sym.decorators}"
+        )
+
+    def test_java_override_only_is_not_deprecated(self):
+        from repowise.core.analysis.dead_code.analyzer import _is_symbol_deprecated
+
+        src = b"""
+public class Service extends Base {
+    @Override
+    public void processData() { }
+}
+"""
+        fi = self._make_file_info("pkg/Service.java", "java")
+        result = self._parser().parse_file(fi, src)
+        sym = next((s for s in result.symbols if s.name == "processData"), None)
+        assert sym is not None
+        assert not _is_symbol_deprecated(sym.name, sym.decorators), (
+            f"processData should NOT be deprecated; decorators={sym.decorators}"
+        )
+
+    # ------------------------------------------------------------------
+    # Rust — #[deprecated] is a preceding sibling (existing behaviour preserved)
+    # ------------------------------------------------------------------
+
+    def test_rust_deprecated_still_works(self):
+        """Rust attribute extraction was correct before; regression guard."""
+        from repowise.core.analysis.dead_code.analyzer import _is_symbol_deprecated
+
+        src = b'#[deprecated(since = "1.0", note = "use bar instead")]\npub fn old_api() {}\n'
+        fi = self._make_file_info("pkg/lib.rs", "rust")
+        result = self._parser().parse_file(fi, src)
+        sym = next((s for s in result.symbols if s.name == "old_api"), None)
+        assert sym is not None, "old_api symbol not found"
+        assert _is_symbol_deprecated(sym.name, sym.decorators), (
+            f"old_api should be deprecated; decorators={sym.decorators}"
+        )
