@@ -49,13 +49,25 @@ def _stale_git_meta(name: str) -> dict:
 
 
 def _deprecated_symbol(name: str) -> dict:
-    """A public symbol marked @deprecated — gets confidence=0.3 from the analyzer."""
+    """A public symbol whose *name* triggers confidence=0.3.
+
+    The analyzer (analyzer.py ``_detect_unused_exports``) keys on the name
+    suffix, not on any decorator:
+
+        is_deprecated = any(
+            sym_name.endswith(s) for s in ("_DEPRECATED", "_LEGACY", "_COMPAT")
+        )
+
+    Pass a name ending in one of those suffixes (e.g. ``process_data_DEPRECATED``)
+    to get the 0.3 score.  A ``@deprecated`` decorator is *inert* and is
+    intentionally omitted here so a future rename does not silently lose coverage
+    while a misleading decorator sits in place.
+    """
     return {
         "name": name,
         "kind": "function",
         "visibility": "public",
         "language": "python",
-        "decorators": ["@deprecated"],
         "start_line": 1,
         "end_line": 10,
     }
