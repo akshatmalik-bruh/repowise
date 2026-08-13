@@ -69,6 +69,73 @@ _IDENTIFIER_RE = re.compile(rb"[A-Za-z_][A-Za-z0-9_]{2,}")
 _UNINDEXED_SCAN_PER_FILE_BYTES = 4 * 1024 * 1024
 _UNINDEXED_SCAN_TOTAL_BYTES = 32 * 1024 * 1024
 
+# ---------------------------------------------------------------------------
+# Deprecation detection
+# ---------------------------------------------------------------------------
+
+#: Normalised decorator/annotation bases (after stripping leading ``@`` and
+#: any call-argument ``(…)`` tail) that signal a symbol is deprecated.
+#:
+#: Rust inner-attr form (``deprecated``), C# stripped form (``Obsolete``), and
+#: C++ stripped form (``deprecated``) are included verbatim because the
+#: respective sibling-walk extractors in ``parser.py`` already strip the
+#: language-specific bracket pairs before storing.
+_DEPRECATED_DECORATOR_BASES: frozenset[str] = frozenset(
+    {
+        # Python / TypeScript / Scala / Swift
+        "deprecated",
+        "typing.deprecated",
+        "warnings.deprecated",
+        # Java / Kotlin (case-sensitive annotation names)
+        "Deprecated",
+        "kotlin.Deprecated",
+        "java.lang.Deprecated",
+        # C# (inner attr text after stripping [ ])
+        "Obsolete",
+        "System.Obsolete",
+        "System.ObsoleteAttribute",
+    }
+)
+
+
+def _is_symbol_deprecated(sym_name: str, decorators: list[str]) -> bool:
+    """Return True when the symbol is marked deprecated by name suffix or annotation.
+
+    Two mechanisms are checked in order:
+
+    1. **Name suffix**: the name ends with ``_DEPRECATED``, ``_LEGACY``, or
+       ``_COMPAT`` (original naming-convention check, preserved for backward
+       compatibility).
+
+    2. **Decorator / annotation**: each entry in *decorators* is normalised by
+       stripping a leading ``@``, dropping any call-argument ``(…)`` tail, and
+       trimming whitespace; the result is tested against
+       ``_DEPRECATED_DECORATOR_BASES`` and against the lower-cased form
+       ``"deprecated"`` as a catch-all.
+
+    The *decorators* list is produced by ``parser.py`` ``_extract_symbols``:
+    - Python / TS / Java / Kotlin / Scala / Swift: full decorator text with
+      leading ``@`` (e.g. ``"@deprecated"``, ``"@Deprecated"``).
+    - Rust: inner attribute content stripped of ``#[…]``
+      (e.g. ``"deprecated"`` from ``#[deprecated]``).
+    - C#: inner attribute content stripped of ``[…]``
+      (e.g. ``"Obsolete"`` from ``[Obsolete]``).
+    - C++: inner attribute content stripped of ``[[…]]``
+      (e.g. ``"deprecated"`` from ``[[deprecated]]``).
+    """
+    # 1. Name suffix
+    if any(sym_name.endswith(s) for s in ("_DEPRECATED", "_LEGACY", "_COMPAT")):
+        return True
+    # 2. Decorator / annotation
+    for raw in decorators:
+        base = raw.lstrip("@").strip()
+        paren = base.find("(")
+        if paren >= 0:
+            base = base[:paren].strip()
+        if base in _DEPRECATED_DECORATOR_BASES or base.lower() == "deprecated":
+            return True
+    return False
+
 # Symbol kinds that cannot be independently imported by name in any
 # supported language. Flagging them as "unused exports" is a guaranteed
 # false-positive — they're always accessed through an enclosing class /
@@ -1200,8 +1267,8 @@ class DeadCodeAnalyzer:
                 if local_refs and sym_name in local_refs:
                     continue
 
-                is_deprecated = any(
-                    sym_name.endswith(suffix) for suffix in ("_DEPRECATED", "_LEGACY", "_COMPAT")
+                is_deprecated = _is_symbol_deprecated(
+                    sym_name, sym.get("decorators") or []
                 )
 
                 # ``export { local as alias }`` publishes the symbol under the
@@ -1435,13 +1502,19 @@ class DeadCodeAnalyzer:
                 continue
 
             git_meta = self.git_meta_map.get(file_path, {})
+            # Deprecated private symbols score 0.3 (review candidate) rather
+            # than the default 0.65, matching the unused-export pass behaviour.
+            _intern_deprecated = _is_symbol_deprecated(
+                sym_name, node_data.get("decorators") or []
+            )
+            _intern_confidence = 0.3 if _intern_deprecated else 0.65
             findings.append(
                 DeadCodeFindingData(
                     kind=DeadCodeKind.UNUSED_INTERNAL,
                     file_path=file_path,
                     symbol_name=sym_name,
                     symbol_kind=node_data.get("kind"),
-                    confidence=0.65,
+                    confidence=_intern_confidence,
                     reason=f"Private symbol '{sym_name}' has no callers",
                     last_commit_at=git_meta.get("last_commit_at")
                     if isinstance(git_meta.get("last_commit_at"), datetime)

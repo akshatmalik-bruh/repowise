@@ -547,6 +547,42 @@ class ASTParser:
                             k -= 1
                         break
 
+            # C#: [Obsolete] / [System.Obsolete] are ``attribute_list`` nodes
+            # that precede the declaration — same AST shape as Rust attribute_item.
+            # Strip the outer [ ] so the inner content matches the same
+            # _DEPRECATED_DECORATOR_BASES the analyzer uses for every other lang.
+            csharp_attrs: list[str] = []
+            if file_info.language == "csharp" and def_node.parent is not None:
+                siblings = def_node.parent.children
+                for j, sib in enumerate(siblings):
+                    if sib.id == def_node.id:
+                        k = j - 1
+                        while k >= 0 and siblings[k].type == "attribute_list":
+                            attr_text = _node_text(siblings[k], src).strip()
+                            # "[Obsolete]" → "Obsolete"
+                            if attr_text.startswith("[") and attr_text.endswith("]"):
+                                csharp_attrs.append(attr_text[1:-1])
+                            k -= 1
+                        break
+
+            # C/C++: [[deprecated]] / [[deprecated("reason")]] are
+            # ``attribute_declaration`` nodes preceding the declaration.
+            # Strip the outer [[ ]] so the inner content lands in the same
+            # checker as the Rust and C# forms.
+            cpp_attrs: list[str] = []
+            if file_info.language in ("cpp", "c") and def_node.parent is not None:
+                siblings = def_node.parent.children
+                for j, sib in enumerate(siblings):
+                    if sib.id == def_node.id:
+                        k = j - 1
+                        while k >= 0 and siblings[k].type == "attribute_declaration":
+                            attr_text = _node_text(siblings[k], src).strip()
+                            # "[[deprecated]]" → "deprecated"
+                            if attr_text.startswith("[[") and attr_text.endswith("]]"):
+                                cpp_attrs.append(attr_text[2:-2])
+                            k -= 1
+                        break
+
             visibility = config.visibility_fn(name, modifier_texts)
             is_exported_symbol = False
             # C/C++ visibility is dictated by AST context (access
@@ -614,7 +650,12 @@ class ASTParser:
                     start_line=start_line,
                     end_line=end_line,
                     docstring=docstring,
-                    decorators=[m for m in modifier_texts if m.startswith("@")] + rust_attrs,
+                    decorators=(
+                        [m for m in modifier_texts if m.startswith("@")]
+                        + rust_attrs
+                        + csharp_attrs
+                        + cpp_attrs
+                    ),
                     visibility=visibility,  # type: ignore[arg-type]
                     is_async=is_async,
                     language=file_info.language,
