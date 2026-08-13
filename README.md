@@ -33,6 +33,7 @@
   <a href="#see-all-of-it">Dashboard</a> ·
   <a href="#past-one-repo">Workspaces</a> ·
   <a href="#quickstart-under-5-minutes-no-api-key">Quickstart</a> ·
+  <a href="#supported-agents">Agents</a> ·
   <a href="#the-ten-mcp-tools">MCP tools</a> ·
   <a href="#measured-against-the-field">Benchmarks</a> ·
   <a href="#how-it-compares-on-capability">Comparison</a> ·
@@ -65,7 +66,7 @@ Free and self-hosted, runs on your machine, and the first index needs no API key
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/one-index-dark.svg" />
-  <img src=".github/assets/one-index.svg" alt="One index producing code health, a dependency graph, git history, generated docs, architectural decisions, and eleven MCP tools" width="100%" />
+  <img src=".github/assets/one-index.svg" alt="One index producing code health, a dependency graph, git history, generated docs, architectural decisions, and ten MCP tools" width="100%" />
 </picture>
 
 </div>
@@ -365,6 +366,42 @@ Set Up This Repository**. Guide: **[docs/agent/VSCODE.md →](docs/agent/VSCODE.
 
 ---
 
+## Supported agents
+
+**Six agents wired end to end · two at the Full tier · every other MCP host one
+paste away.**
+
+<p>
+  <strong>Full tier &nbsp;</strong>
+  <img src="https://img.shields.io/badge/Claude_Code-D97757?style=flat-square&logo=claude&logoColor=white" alt="Claude Code" />
+  <img src="https://img.shields.io/badge/Codex_CLI-000000?style=flat-square&logo=openai&logoColor=white" alt="Codex CLI" />
+</p>
+<p>
+  <strong>Good tier &nbsp;</strong>
+  <img src="https://img.shields.io/badge/VS_Code-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white" alt="VS Code" />
+  <img src="https://img.shields.io/badge/Cursor-000000?style=flat-square&logo=cursor&logoColor=white" alt="Cursor" />
+  <img src="https://img.shields.io/badge/OpenCode-000000?style=flat-square&logo=opencode&logoColor=white" alt="OpenCode" />
+  <img src="https://img.shields.io/badge/Hermes-000000?style=flat-square&logoColor=white" alt="Hermes" />
+</p>
+
+**Full** is every surface repowise has: MCP tools, skills, slash commands, a managed
+instructions file, hook-level interception of tool calls, and transcript mining after
+the session. **Good** is the honest half of that: MCP tools and the config to reach
+them, but no hook-level interception and no transcript mining. A Good-tier agent can
+ask repowise anything; repowise never sees the tool calls in between. The tier is
+computed from what each integration actually wires, so this list cannot claim a depth
+the code does not have.
+
+Everything else that speaks MCP is one snippet away. `repowise agents print-config
+claude-code` prints a stdio server entry to paste into Cline, Windsurf, Zed, Gemini
+CLI or any other host that keys on `mcpServers`, and repowise writes nothing.
+
+Adding an agent takes **one descriptor file and one registry line**, with no changes to
+the orchestrators. Full matrix and the contributor recipe:
+**[docs/agent/INTEGRATIONS.md →](docs/agent/INTEGRATIONS.md)**
+
+---
+
 ## Supported languages
 
 **18 languages parsed to AST · 13 at the Full tier · framework-aware across all of them.**
@@ -509,7 +546,7 @@ Full walkthrough: **[docs/start/QUICKSTART.md →](docs/start/QUICKSTART.md)**
 
 ---
 
-## The eleven MCP tools
+## The ten MCP tools
 
 Every response carries an `_meta` envelope with `index_age_days`, `indexed_commit`, and
 a `stale_warning` that fires only when the indexed HEAD diverges from live `.git/HEAD`,
@@ -527,9 +564,8 @@ so your agent always knows how much to trust what it just read.
 | `get_why(query?, targets?)` | Architectural decisions and their verbatim evidence spans, stamped exact / fuzzy / unverified. Falls back to git archaeology when no decisions exist. |
 | `get_dead_code(...)` | Unreachable code by confidence tier with cleanup-impact estimates, and cross-repo consumer detection in workspace mode. |
 | `get_health(targets?, include?)` | Per-file marker scores across all three signals. `include` opens coverage, trends, per-file signals, the accuracy self-check, and structured refactoring plans. |
-| `list_repos()` | Repo aliases this server is serving. Discover `repo=` targets (especially in a workspace). |
 
-Eleven is a deliberate ceiling rather than a limit we ran into: a small, task-shaped
+Ten is a deliberate ceiling rather than a limit we ran into: a small, task-shaped
 surface is easier for an agent to choose from than a large one. Worked example (*"add
 rate limiting to all API endpoints"* in 5 calls instead of ~30 greps and reads), the
 opt-in tools, and the full reference: **[docs/agent/MCP_TOOLS.md →](docs/agent/MCP_TOOLS.md)**

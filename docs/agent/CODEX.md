@@ -110,11 +110,25 @@ codex
 /plugins
 ```
 
-The plugin bundles Repowise MCP, lifecycle hooks, and Codex-neutral skills for exploration, pre-modification checks, architectural decisions, and dead-code cleanup. It does not add Claude-style slash commands. Plugin-bundled hooks are opt-in in current Codex releases; enable them with `[features] plugin_hooks = true` if you want hooks loaded from an installed plugin.
+The plugin bundles Repowise MCP, lifecycle hooks, and Codex-neutral skills for exploration, pre-modification checks, architectural decisions, and dead-code cleanup. Plugin-bundled hooks are opt-in in current Codex releases; enable them with `[features] plugin_hooks = true` if you want hooks loaded from an installed plugin.
+
+## Slash commands
+
+The plugin does not carry these, and cannot: a Codex plugin manifest has no slot for commands. Codex reads slash commands from `~/.codex/prompts/`, which is global and which only the CLI can write, so Repowise installs them there:
+
+```bash
+repowise agents add --target=codex
+```
+
+That writes one `repowise-*.md` per command, and `repowise agents remove --target=codex` takes them back out. Invoke them as `/prompts:repowise-risk`, `/prompts:repowise-ask` and so on. They are rendered from the same `plugins/shared/` source as the Claude Code plugin's commands, so the two hosts cannot drift.
+
+Note this is the mirror image of Claude Code, where the commands come from the plugin and `repowise init` never writes any.
 
 ## AGENTS.md
 
 `repowise init --codex` generates a managed `AGENTS.md` by default. `repowise update` refreshes it when `editor_files.agents_md` is enabled, or when `--agents` is passed. The Repowise section is bounded by managed markers and user content outside the markers is preserved.
+
+`AGENTS.md` is a host-neutral convention rather than a Codex-only file: [OpenCode](OPENCODE.md) and [Hermes](HERMES.md) read the same path and manage the same section. All of them writing it is safe, because the section is idempotent. Removing one agent while another is still wired leaves the section in place and reports that it did, so the agent still using it does not silently lose its instructions.
 
 Controls:
 
