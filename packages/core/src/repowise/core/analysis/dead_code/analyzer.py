@@ -1489,25 +1489,19 @@ class DeadCodeAnalyzer:
                 continue
 
             git_meta = self.git_meta_map.get(file_path, {})
-            # Deprecated private symbols score 0.3 (review candidate) rather
-            # than the default 0.65, matching the unused-export pass behaviour.
-            _intern_deprecated = _is_symbol_deprecated(
-                sym_name, node_data.get("decorators") or []
-            )
-            # Deprecated private symbols keep the standard 0.65 base confidence.
+            # Private symbols keep the standard 0.65 base confidence even if deprecated.
             # A private symbol has no external consumer by construction —
             # deprecated + uncalled is the strongest possible delete signal and
             # must not be buried below the default min_confidence floor.
             # (0.3 is reserved for unused *exports*, where an invisible consumer
             # outside the repo may still import it.)
-            _intern_confidence = 0.65
             findings.append(
                 DeadCodeFindingData(
                     kind=DeadCodeKind.UNUSED_INTERNAL,
                     file_path=file_path,
                     symbol_name=sym_name,
                     symbol_kind=node_data.get("kind"),
-                    confidence=_intern_confidence,
+                    confidence=0.65,
                     reason=f"Private symbol '{sym_name}' has no callers",
                     last_commit_at=git_meta.get("last_commit_at")
                     if isinstance(git_meta.get("last_commit_at"), datetime)
