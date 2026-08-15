@@ -16,7 +16,7 @@ uvicorn repowise.server.app:create_app \
   --port "${PORT_BACKEND}" &
 
 # Start the Next.js frontend
-# After PR #1236 moves the lockfile to workspace root, Next.js standalone output
+# outputFileTracingRoot points to the repo root, so Next.js standalone output
 # nests server.js under packages/web/ relative to the standalone root directory.
 echo "Starting repowise Web UI on port ${PORT_FRONTEND}..."
 cd /app/web/packages/web

@@ -12,15 +12,27 @@ FROM node:20-bookworm-slim AS frontend-builder
 
 WORKDIR /app
 
-# Copy root manifest/lockfile and all packages for monorepo resolution
-COPY package.json package-lock.json* pnpm-lock.yaml* ./
-COPY packages/ ./packages/
+# Copy root manifest/lockfile for workspace resolution
+COPY package.json package-lock.json* ./
+
+# Copy only workspace package.json manifests first so the npm install layer
+# is cached independently of source changes. Any edit to a .ts/.tsx/etc. file
+# will skip straight to `next build` without re-running the 2-min install.
+COPY packages/web/package.json       ./packages/web/package.json
+COPY packages/types/package.json     ./packages/types/package.json
+COPY packages/ui/package.json        ./packages/ui/package.json
+COPY packages/api-client/package.json ./packages/api-client/package.json
 
 # Change directory to web package and install dependencies
 WORKDIR /app/packages/web
 RUN npm install --production=false
 
+# Copy full package source (after install — source changes skip the install cache)
+WORKDIR /app
+COPY packages/ ./packages/
+
 # Build Next.js frontend
+WORKDIR /app/packages/web
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_PUBLIC_REPOWISE_API_URL=http://localhost:7337
 RUN npm run build
