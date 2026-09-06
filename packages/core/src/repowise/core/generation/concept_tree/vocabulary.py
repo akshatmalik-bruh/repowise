@@ -63,6 +63,55 @@ _HEADING = re.compile(r"^\s{0,3}#{1,4}\s+(.+?)\s*#*\s*$", re.MULTILINE)
 # Bolded lead-ins are how glossaries are usually written: "**Blast radius** — ".
 _BOLD_TERM = re.compile(r"\*\*([A-Z][^*\n]{2,40})\*\*")
 
+# Opening fence: 0-3 leading spaces, then 3+ backticks or tildes, optional info
+_FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})", re.MULTILINE)
+
+
+def _strip_fenced_blocks(text: str) -> str:
+    """Return *text* with every fenced code block's content replaced by blank
+    lines of the same length.
+
+    Lines inside a fenced block are replaced with empty strings so that the
+    total character count and every character offset are preserved.  This keeps
+    ``_definition_after_heading``'s ``m.end()`` byte offsets valid even after
+    stripping.
+
+    Both backtick fences (``` … ```) and tilde fences (~~~ … ~~~) are
+    supported.  The fence marker on the *opening* line determines which marker
+    closes the block (CommonMark §4.5).
+    """
+    lines = text.split("\n")
+    result: list[str] = []
+    inside = False
+    fence_char: str = ""
+    fence_len: int = 0
+
+    for line in lines:
+        if not inside:
+            m = _FENCE_OPEN.match(line)
+            if m:
+                inside = True
+                fence_char = m.group(1)[0]  # '`' or '~'
+                fence_len = len(m.group(1))
+                result.append(line)  # keep the opening fence line itself
+            else:
+                result.append(line)
+        else:
+            stripped = line.lstrip(" ")
+            # A closing fence: same character, at least as many, no info string
+            if (
+                stripped.startswith(fence_char * fence_len)
+                and stripped.rstrip(fence_char).rstrip() == ""
+            ):
+                inside = False
+                result.append(line)  # keep the closing fence line itself
+            else:
+                # Replace content with an empty string of the same byte length
+                # so every subsequent offset stays correct.
+                result.append("")
+
+    return "\n".join(result)
+
 _STOPWORDS = frozenset(
     {
         "the",
@@ -577,7 +626,10 @@ _MIN_HEADINGS_TO_JUDGE = 8
 def _is_release_notes(path: Path, text: str) -> bool:
     if _RELEASE_NOTE_NAMES.search(path.name):
         return True
-    headings = _HEADING.findall(text)
+    # Strip fenced blocks so that shell/script comments (# …) inside code
+    # examples are not counted as headings.  Fixes #2142.
+    prose = _strip_fenced_blocks(text)
+    headings = _HEADING.findall(prose)
     if len(headings) < _MIN_HEADINGS_TO_JUDGE:
         return False
     versiony = sum(1 for h in headings if _VERSION_HEADING.match(h.strip()))
@@ -737,9 +789,14 @@ def _harvest(
             rst_sections_seen += len(entries)
             rst_sections_undefined += sum(1 for _t, d in entries if d is None)
         else:
+            # Strip fenced blocks before scanning so that # comments inside
+            # shell/Python/YAML examples are not mistaken for headings.
+            # Blank-line replacement (not deletion) keeps m.end() byte offsets
+            # valid for _definition_after_heading.  Fixes #2142.
+            prose = _strip_fenced_blocks(text)
             entries = [
                 (m.group(1), _definition_after_heading(text, m.end()))
-                for m in _HEADING.finditer(text)
+                for m in _HEADING.finditer(prose)
             ]
         # Bolded lead-ins read the same in both markup languages.
         entries += [(m.group(1), None) for m in _BOLD_TERM.finditer(text)]
