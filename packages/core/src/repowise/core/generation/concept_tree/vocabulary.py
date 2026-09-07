@@ -68,13 +68,10 @@ _FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})", re.MULTILINE)
 
 
 def _strip_fenced_blocks(text: str) -> str:
-    """Return *text* with every fenced code block's content replaced by blank
-    lines of the same length.
+    """Return *text* with lines inside fenced code blocks replaced with empty strings.
 
-    Lines inside a fenced block are replaced with empty strings so that the
-    total character count and every character offset are preserved.  This keeps
-    ``_definition_after_heading``'s ``m.end()`` byte offsets valid even after
-    stripping.
+    Lines inside a fenced block are replaced with empty strings so that code
+    and shell comments are stripped while keeping line breaks intact.
 
     Both backtick fences (``` … ```) and tilde fences (~~~ … ~~~) are
     supported.  The fence marker on the *opening* line determines which marker
@@ -106,8 +103,7 @@ def _strip_fenced_blocks(text: str) -> str:
                 inside = False
                 result.append(line)  # keep the closing fence line itself
             else:
-                # Replace content with an empty string of the same byte length
-                # so every subsequent offset stays correct.
+                # Replace content line with an empty string to strip code/comments.
                 result.append("")
 
     return "\n".join(result)
@@ -789,13 +785,12 @@ def _harvest(
             rst_sections_seen += len(entries)
             rst_sections_undefined += sum(1 for _t, d in entries if d is None)
         else:
-            # Strip fenced blocks before scanning so that # comments inside
-            # shell/Python/YAML examples are not mistaken for headings.
-            # Blank-line replacement (not deletion) keeps m.end() byte offsets
-            # valid for _definition_after_heading.  Fixes #2142.
+            # Strip fenced blocks before scanning so that code block comments
+            # (e.g. shell script or config comments) are not harvested as headings.
+            # Pass stripped prose to _definition_after_heading so search offsets align.
             prose = _strip_fenced_blocks(text)
             entries = [
-                (m.group(1), _definition_after_heading(text, m.end()))
+                (m.group(1), _definition_after_heading(prose, m.end()))
                 for m in _HEADING.finditer(prose)
             ]
         # Bolded lead-ins read the same in both markup languages.

@@ -1216,3 +1216,35 @@ def test_version_comments_in_code_block_do_not_trigger_release_notes(
         "A doc with version comments only in a code block must not be classified "
         "as release notes and must still yield its real headings as terms"
     )
+
+
+def test_heading_definition_after_fenced_block_is_extracted_correctly(
+    tmp_path: Path,
+) -> None:
+    """Verify that headings occurring after fenced code blocks extract their correct definitions.
+
+    Ensures offset indices for definition extraction align with the stripped prose text,
+    preventing offsets from slicing into preceding code blocks.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "README.md").write_text(
+        "# Ledger\n\n"
+        "```bash\n"
+        "# install the dependencies for the ledger service\n"
+        "npm install\n"
+        "```\n\n"
+        "## Blast radius\n\n"
+        "Blast radius is the set of files a change can reach through the import graph.\n",
+        encoding="utf-8",
+    )
+    src = root / "src"
+    src.mkdir()
+    (src / "analysis.py").write_text('"""Blast radius calculation."""\n', encoding="utf-8")
+
+    result = {t.term: t for t in extract_house_terms(root)}
+    assert "Blast radius" in result
+    assert result["Blast radius"].definition == (
+        "Blast radius is the set of files a change can reach through the import graph."
+    )
+
